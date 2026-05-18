@@ -179,6 +179,8 @@ class SignPaymentParams:
     """Parameters for signing an authorize or charge call.
 
     Obtain the nonce from client.payments.authorize_nonce() or charge_nonce().
+    The contract hardcodes validAfter=0 and validBefore=payment.authorizationExpiry;
+    these are not configurable by the caller.
     """
 
     private_key: Union[str, bytes]
@@ -189,19 +191,13 @@ class SignPaymentParams:
     """Amount to pull from the payer, in token base units."""
 
     nonce: Bytes32
-    """Nonce from client.payments.authorize_nonce(payment_id, payer) or charge_nonce(...)."""
+    """Nonce from client.payments.authorize_nonce(payment_id, config_hash) or charge_nonce(...)."""
 
     contract_address: Address
     """Deployed RAIL0 contract address — receives the escrowed funds."""
 
     token_domain: TokenDomain
     """EIP-712 domain of the payment token (name, version from the token contract)."""
-
-    valid_after: int = field(default=0)
-    """Earliest block timestamp the sig is valid (default: 0 = immediately)."""
-
-    valid_before: Optional[int] = field(default=None)
-    """Latest block timestamp the sig is valid (default: payment.authorizationExpiry)."""
 
 
 # ================================================================
@@ -264,7 +260,8 @@ def sign_authorize(params: SignPaymentParams) -> Eip3009Signature:
     """Sign the EIP-3009 payload required by an authorize call.
 
     ```python
-    nonce = client.payments.authorize_nonce(payment_id, payment["payer"])["nonce"]
+    config_hash = client.payments.hash(payment)["hash"]
+    nonce = client.payments.authorize_nonce(payment_id, config_hash)["nonce"]
     sig = sign_authorize(SignPaymentParams(
         private_key=private_key,
         payment=payment,
@@ -280,19 +277,14 @@ def sign_authorize(params: SignPaymentParams) -> Eip3009Signature:
     })
     ```
     """
-    valid_before = (
-        params.valid_before
-        if params.valid_before is not None
-        else params.payment["authorizationExpiry"]
-    )
     return _do_sign(
         params.private_key,
         params.token_domain,
         from_=params.payment["payer"],
         to=params.contract_address,
         value=params.amount,
-        valid_after=params.valid_after,
-        valid_before=valid_before,
+        valid_after=0,
+        valid_before=params.payment["authorizationExpiry"],
         nonce=params.nonce,
     )
 
@@ -301,7 +293,8 @@ def sign_charge(params: SignPaymentParams) -> Eip3009Signature:
     """Sign the EIP-3009 payload required by a charge call.
 
     ```python
-    nonce = client.payments.charge_nonce(payment_id, payment["payer"])["nonce"]
+    config_hash = client.payments.hash(payment)["hash"]
+    nonce = client.payments.charge_nonce(payment_id, config_hash)["nonce"]
     sig = sign_charge(SignPaymentParams(
         private_key=private_key,
         payment=payment,
@@ -317,18 +310,13 @@ def sign_charge(params: SignPaymentParams) -> Eip3009Signature:
     })
     ```
     """
-    valid_before = (
-        params.valid_before
-        if params.valid_before is not None
-        else params.payment["authorizationExpiry"]
-    )
     return _do_sign(
         params.private_key,
         params.token_domain,
         from_=params.payment["payer"],
         to=params.contract_address,
         value=params.amount,
-        valid_after=params.valid_after,
-        valid_before=valid_before,
+        valid_after=0,
+        valid_before=params.payment["authorizationExpiry"],
         nonce=params.nonce,
     )

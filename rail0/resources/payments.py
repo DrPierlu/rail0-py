@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from ..core.http import HttpClient
 from .types import (
-    Address,
     AuthorizeParams,
     Bytes32,
     CaptureParams,
@@ -50,13 +49,19 @@ class PaymentsResource:
         """Refund a previously captured amount from the payee to the payer. Caller must be the payee."""
         return self._http.post(f"/payments/{payment_id}/refund", dict(params))
 
-    def authorize_nonce(self, payment_id: Bytes32, payer: Address) -> NonceResponse:
-        """Returns the EIP-3009 nonce the payer must use when signing an authorize call."""
-        return self._http.get(f"/payments/{payment_id}/authorize-nonce?payer={payer}")
+    def authorize_nonce(self, payment_id: Bytes32, config_hash: Bytes32) -> NonceResponse:
+        """Returns the EIP-3009 nonce the payer must use when signing an authorize call.
 
-    def charge_nonce(self, payment_id: Bytes32, payer: Address) -> NonceResponse:
-        """Returns the EIP-3009 nonce the payer must use when signing a charge call."""
-        return self._http.get(f"/payments/{payment_id}/charge-nonce?payer={payer}")
+        config_hash is the EIP-712 digest of the Payment configuration (from payments.hash()).
+        """
+        return self._http.get(f"/payments/{payment_id}/authorize-nonce?configHash={config_hash}")
+
+    def charge_nonce(self, payment_id: Bytes32, config_hash: Bytes32) -> NonceResponse:
+        """Returns the EIP-3009 nonce the payer must use when signing a charge call.
+
+        config_hash is the EIP-712 digest of the Payment configuration (from payments.hash()).
+        """
+        return self._http.get(f"/payments/{payment_id}/charge-nonce?configHash={config_hash}")
 
     def hash(self, payment: Payment) -> HashResponse:
         """Compute the canonical EIP-712 digest of a Payment configuration."""
