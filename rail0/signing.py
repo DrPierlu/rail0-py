@@ -16,15 +16,14 @@ from typing import Optional, Union
 
 try:
     import coincurve
-    import sha3  # noqa: F401 — patches hashlib with keccak_256
-    import hashlib
+    from Crypto.Hash import keccak as _keccak_lib
 except ImportError as exc:
     raise ImportError(
-        "Signing requires 'coincurve' and 'pysha3'. "
+        "Signing requires 'coincurve' and 'pycryptodome'. "
         "Install them with: pip install rail0[signing]"
     ) from exc
 
-from .resources.types import Address, Bytes32, Payment
+from .resources.types import Address, Bytes32, PaymentConfig
 
 # ================================================================
 #  EIP-712 type strings
@@ -38,7 +37,7 @@ _TRANSFER_TYPE = (
 
 
 def _keccak256(data: bytes) -> bytes:
-    k = hashlib.new("keccak_256")
+    k = _keccak_lib.new(digest_bits=256)
     k.update(data)
     return k.digest()
 
@@ -186,7 +185,7 @@ class SignPaymentParams:
     private_key: Union[str, bytes]
     """Payer's private key (0x-prefixed hex string or raw bytes)."""
 
-    payment: Payment
+    payment: PaymentConfig
     amount: int
     """Amount to pull from the payer, in token base units."""
 
@@ -198,6 +197,9 @@ class SignPaymentParams:
 
     token_domain: TokenDomain
     """EIP-712 domain of the payment token (name, version from the token contract)."""
+
+    valid_before: Optional[int] = None
+    """Override validBefore; defaults to payment["authorizationExpiry"]."""
 
 
 # ================================================================
@@ -284,7 +286,7 @@ def sign_authorize(params: SignPaymentParams) -> Eip3009Signature:
         to=params.contract_address,
         value=params.amount,
         valid_after=0,
-        valid_before=params.payment["authorizationExpiry"],
+        valid_before=params.valid_before if params.valid_before is not None else params.payment["authorizationExpiry"],
         nonce=params.nonce,
     )
 
@@ -317,6 +319,6 @@ def sign_charge(params: SignPaymentParams) -> Eip3009Signature:
         to=params.contract_address,
         value=params.amount,
         valid_after=0,
-        valid_before=params.payment["authorizationExpiry"],
+        valid_before=params.valid_before if params.valid_before is not None else params.payment["authorizationExpiry"],
         nonce=params.nonce,
     )

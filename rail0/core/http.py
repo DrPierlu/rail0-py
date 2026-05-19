@@ -72,6 +72,9 @@ class HttpClient:
     def post(self, path: str, body: Any = None) -> Any:
         return self._request("POST", path, body)
 
+    def put(self, path: str, body: Any = None) -> Any:
+        return self._request("PUT", path, body)
+
     def _request(self, method: str, path: str, body: Any = None) -> Any:
         url = f"{self._base_url}{path}"
         max_attempts = self._max_retries + 1
@@ -86,6 +89,8 @@ class HttpClient:
                 with httpx.Client(timeout=self._timeout) as client:
                     if method == "GET":
                         response = client.get(url, headers=self._headers)
+                    elif method == "PUT":
+                        response = client.put(url, json=body, headers=self._headers)
                     else:
                         response = client.post(url, json=body, headers=self._headers)
             except (httpx.TimeoutException, httpx.NetworkError) as err:

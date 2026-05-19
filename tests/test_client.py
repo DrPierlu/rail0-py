@@ -143,24 +143,24 @@ def test_payments_refund():
 @respx.mock
 def test_payments_authorize_nonce():
     nonce = "0xaaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccdddd"
-    payer = PAYMENT["payer"]
-    respx.get(f"{BASE_URL}/payments/{PAYMENT_ID}/authorize-nonce?payer={payer}").mock(
+    config_hash = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    respx.get(f"{BASE_URL}/payments/{PAYMENT_ID}/authorize-nonce?configHash={config_hash}").mock(
         return_value=httpx.Response(200, json={"nonce": nonce})
     )
     client = Rail0Client(base_url=BASE_URL)
-    result = client.payments.authorize_nonce(PAYMENT_ID, payer)
+    result = client.payments.authorize_nonce(PAYMENT_ID, config_hash)
     assert result["nonce"] == nonce
 
 
 @respx.mock
 def test_payments_charge_nonce():
     nonce = "0xaaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccddddaaaabbbbccccdddd"
-    payer = PAYMENT["payer"]
-    respx.get(f"{BASE_URL}/payments/{PAYMENT_ID}/charge-nonce?payer={payer}").mock(
+    config_hash = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    respx.get(f"{BASE_URL}/payments/{PAYMENT_ID}/charge-nonce?configHash={config_hash}").mock(
         return_value=httpx.Response(200, json={"nonce": nonce})
     )
     client = Rail0Client(base_url=BASE_URL)
-    result = client.payments.charge_nonce(PAYMENT_ID, payer)
+    result = client.payments.charge_nonce(PAYMENT_ID, config_hash)
     assert result["nonce"] == nonce
 
 
