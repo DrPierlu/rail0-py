@@ -7,7 +7,7 @@ Request / response bodies use camelCase keys to match the JSON wire format.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, List
 from typing_extensions import TypedDict
 
 # ================================================================
@@ -24,11 +24,11 @@ Uint256String = str
 """Unsigned 256-bit integer serialised as a decimal string. Avoids precision loss for large amounts."""
 
 # ================================================================
-#  Core model
+#  Core models
 # ================================================================
 
 
-class Payment(TypedDict):
+class PaymentConfig(TypedDict):
     """Immutable payment configuration shared by both payer and payee.
 
     The EIP-712 digest (configHash) is committed on-chain the first time
@@ -46,58 +46,87 @@ class Payment(TypedDict):
     feeReceiver: Address
 
 
-class PaymentState(TypedDict):
-    """On-chain mutable state for a payment, packed in a single storage slot."""
+class EIP712Domain(TypedDict):
+    """EIP-712 domain for the token contract."""
 
-    exists: bool
-    capturableAmount: Uint256String
-    refundableAmount: Uint256String
+    name: str
+    version: str
+    chainId: int
+    verifyingContract: Address
+
+
+class _TypeEntry(TypedDict):
+    name: str
+    type: str
+
+
+class _EIP712Types(TypedDict):
+    TransferWithAuthorization: List[_TypeEntry]
+
+
+class EIP3009Message(TypedDict):
+    """Message fields for the EIP-3009 TransferWithAuthorization typed-data signature."""
+
+    from_: Address  # key is "from" in JSON
+    to: Address
+    value: Uint256String
+    validAfter: Uint256String
+    validBefore: Uint256String
+    nonce: Bytes32
+
+
+class SigningPayload(TypedDict):
+    """EIP-712 typed-data structure returned by POST /payments."""
+
+    domain: EIP712Domain
+    types: _EIP712Types
+    primaryType: Literal["TransferWithAuthorization"]
+    message: EIP3009Message
 
 
 # ================================================================
-#  Request params
+#  Request bodies
 # ================================================================
 
 
-class AuthorizeParams(TypedDict):
-    """Body for payments.authorize().
+class CreatePaymentRequest(TypedDict):
+    """Body for payments.create_payment()."""
 
-    v, r, s are the EIP-3009 transferWithAuthorization signature produced
-    by the payer's private key. Use sign_authorize() to build the signature off-chain.
-    """
-
-    payment: Payment
+    payment: PaymentConfig
     amount: Uint256String
+    chainId: int
+    mode: Literal["authorize", "charge"]
+
+
+class PayerSignatureRequest(TypedDict):
+    """Body for payments.sign(). EIP-712 signature components."""
+
     v: int
     r: Bytes32
     s: Bytes32
 
 
-ChargeParams = AuthorizeParams
-"""Body for payments.charge() (one-shot authorize + capture). Same shape as AuthorizeParams."""
+class CapturePaymentRequest(TypedDict):
+    """Body for payments.prepare_capture(). Amount to capture from escrow."""
 
-
-class CaptureParams(TypedDict):
-    """Body for payments.capture()."""
-
-    payment: Payment
     amount: Uint256String
 
 
-class VoidParams(TypedDict):
-    """Body for payments.void()."""
+class SubmitTransactionRequest(TypedDict):
+    """Body for submit_capture(), submit_void(), submit_approve(), submit_refund()."""
 
-    payment: Payment
-
-
-ReleaseParams = VoidParams
-"""Body for payments.release(). Same shape as VoidParams."""
+    signedTransaction: str
 
 
-class RefundParams(TypedDict):
-    """Body for payments.refund()."""
+class ApproveRequest(TypedDict):
+    """Body for payments.prepare_approve(). Allowance to grant the RAIL0 contract."""
 
-    payment: Payment
+    amount: Uint256String
+
+
+class RefundPaymentRequest(TypedDict):
+    """Body for payments.prepare_refund(). Amount to refund to the payer."""
+
     amount: Uint256String
 
 
@@ -106,58 +135,106 @@ class RefundParams(TypedDict):
 # ================================================================
 
 
-class PaymentResponse(TypedDict):
-    """Full on-chain state returned by payments.get()."""
+class CreatePaymentResponse(TypedDict):
+    """Returned by payments.create_payment()."""
 
     paymentId: Bytes32
-    state: PaymentState
     configHash: Bytes32
+    payment: PaymentConfig
+    amount: Uint256String
+    chainId: int
+    rail0Contract: Address
+    signingPayload: SigningPayload
 
 
-class TransactionResponse(TypedDict):
-    """Returned by every write operation. The transaction may still be pending."""
+class PayerSignatureResponse(TypedDict):
+    """Returned by payments.sign()."""
+
+    paymentId: Bytes32
+    status: Literal["signature_stored"]
+    recoveredPayer: Address
+
+
+class AuthorizePaymentResponse(TypedDict):
+    """Returned by payments.authorize()."""
+
+    paymentId: Bytes32
+    transactionHash: Bytes32
+    capturableAmount: Uint256String
+    authorizationExpiry: int
+
+
+class ChargePaymentResponse(TypedDict):
+    """Returned by payments.charge()."""
+
+    paymentId: Bytes32
+    transactionHash: Bytes32
+    chargedAmount: Uint256String
+    feeAmount: Uint256String
+    refundableAmount: Uint256String
+
+
+class PrepareTransactionResponse(TypedDict):
+    """Returned by prepare operations. An unsigned EIP-1559 transaction ready for signing."""
+
+    unsignedTransaction: str
+    to: Address
+    data: str
+    chainId: int
+    nonce: int
+    maxFeePerGas: Uint256String
+    maxPriorityFeePerGas: Uint256String
+    gasLimit: Uint256String
+
+
+class CapturePaymentResponse(TypedDict):
+    """Returned by payments.submit_capture()."""
+
+    paymentId: Bytes32
+    transactionHash: Bytes32
+    capturedAmount: Uint256String
+    feeAmount: Uint256String
+    capturableAmount: Uint256String
+    refundableAmount: Uint256String
+    authorizationExpiry: int
+
+
+class VoidPaymentResponse(TypedDict):
+    """Returned by payments.submit_void()."""
+
+    paymentId: Bytes32
+    transactionHash: Bytes32
+    releasedAmount: Uint256String
+
+
+class ReleasePaymentResponse(TypedDict):
+    """Returned by payments.release()."""
+
+    paymentId: Bytes32
+    transactionHash: Bytes32
+    releasedAmount: Uint256String
+
+
+class ApproveResponse(TypedDict):
+    """Returned by payments.submit_approve()."""
 
     transactionHash: Bytes32
-    status: Literal["pending", "confirmed", "failed"]
+    token: Address
+    spender: Address
+    amount: Uint256String
 
 
-TransactionStatus = Literal["pending", "confirmed", "failed"]
-"""Confirmation status of a submitted transaction."""
+class RefundPaymentResponse(TypedDict):
+    """Returned by payments.submit_refund()."""
 
-
-class TokenStatusResponse(TypedDict):
-    """Returned by tokens.is_accepted()."""
-
-    address: Address
-    accepted: bool
-
-
-class HashResponse(TypedDict):
-    """EIP-712 digest of a Payment struct, returned by payments.hash()."""
-
-    hash: Bytes32
-
-
-class NonceResponse(TypedDict):
-    """Returned by payments.authorize_nonce() and payments.charge_nonce()."""
-
-    nonce: Bytes32
-
-
-class DomainSeparatorResponse(TypedDict):
-    """EIP-712 domain separator of the RAIL0 contract, returned by utils.domain_separator()."""
-
-    domainSeparator: Bytes32
-
-
-class VersionResponse(TypedDict):
-    """Contract version number, returned by utils.version()."""
-
-    version: int
+    paymentId: Bytes32
+    transactionHash: Bytes32
+    refundedAmount: Uint256String
+    refundableAmount: Uint256String
 
 
 class ApiErrorBody(TypedDict):
     """Shape of error responses from the RAIL0 API."""
 
-    error: str
+    code: str
     message: str

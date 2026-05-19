@@ -4,8 +4,6 @@ from typing import Optional
 
 from .core.http import HttpClient, Logger
 from .resources.payments import PaymentsResource
-from .resources.tokens import TokensResource
-from .resources.utils import UtilsResource
 
 
 class Rail0Client:
@@ -13,18 +11,12 @@ class Rail0Client:
 
     ```python
     client = Rail0Client(base_url="https://api.rail0.xyz")
-    state = client.payments.get(payment_id)
+    resp = client.payments.create_payment({"payment": config, "amount": "50000000", "chainId": 84532, "mode": "authorize"})
     ```
     """
 
     payments: PaymentsResource
-    """Payment lifecycle operations: authorize, charge, capture, void, release, refund."""
-
-    tokens: TokensResource
-    """Token allowlist queries."""
-
-    utils: UtilsResource
-    """Contract introspection: domain separator, version."""
+    """Payment lifecycle operations: create, sign, authorize, charge, capture, void, release, approve, refund."""
 
     def __init__(
         self,
@@ -56,5 +48,3 @@ class Rail0Client:
             retry_delay=retry_delay,
         )
         self.payments = PaymentsResource(http)
-        self.tokens = TokensResource(http)
-        self.utils = UtilsResource(http)
