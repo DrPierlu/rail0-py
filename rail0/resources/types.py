@@ -1,13 +1,15 @@
 """
 Public types for the RAIL0 Python SDK.
 
-All types reflect the OpenAPI schema in gen/openapi.json.
+All types mirror the OpenAPI schema in rail0-api/doc/openapi.json.
 Request / response bodies use camelCase keys to match the JSON wire format.
+
+This file is generated — do not hand-edit. Run `python gen/generate.py` to regenerate.
 """
 
 from __future__ import annotations
 
-from typing import Literal, List
+from typing import Any, Dict, List, Literal
 from typing_extensions import TypedDict
 
 # ================================================================
@@ -29,25 +31,28 @@ Uint256String = str
 
 
 class PaymentConfig(TypedDict):
-    """Immutable payment configuration shared by both payer and payee.
-
-    The EIP-712 digest (configHash) is committed on-chain the first time
-    authorize or charge is called. Every subsequent operation on the same
-    paymentId must supply the exact same struct.
-    """
+    """Immutable payment configuration that maps 1-to-1 to the RAIL0 `Payment` Solidity struct."""
 
     payer: Address
     payee: Address
     token: Address
-    maxAmount: Uint256String
+    amount: Uint256String
     authorizationExpiry: int
     refundExpiry: int
     feeBps: int
     feeReceiver: Address
 
 
+class PaymentInput(TypedDict):
+    """Buyer-supplied payment parameters. Policy fields (amount, authorizationExpiry, refundExpiry, feeBps, feeReceiver) are fixed API configuration and are applied server-side — they are not accepted in input but appear in CreatePaymentResponse.payment."""
+
+    payer: Address
+    payee: Address
+    token: Address
+
+
 class EIP712Domain(TypedDict):
-    """EIP-712 domain for the token contract."""
+    """EIP-712 domain for the token contract (used by EIP-3009 TransferWithAuthorization)."""
 
     name: str
     version: str
@@ -55,19 +60,11 @@ class EIP712Domain(TypedDict):
     verifyingContract: Address
 
 
-class _TypeEntry(TypedDict):
-    name: str
-    type: str
-
-
-class _EIP712Types(TypedDict):
-    TransferWithAuthorization: List[_TypeEntry]
-
-
 class EIP3009Message(TypedDict):
     """Message fields for the EIP-3009 TransferWithAuthorization typed-data signature."""
 
-    from_: Address  # key is "from" in JSON
+    # JSON key: "from"
+    from_: Address
     to: Address
     value: Uint256String
     validAfter: Uint256String
@@ -76,10 +73,10 @@ class EIP3009Message(TypedDict):
 
 
 class SigningPayload(TypedDict):
-    """EIP-712 typed-data structure returned by POST /payments."""
+    """EIP-712 typed-data structure that the payer must sign. The `domain`, `types`, and `message` fields follow the EIP-712 standard. Signing options: (a) wallet users pass this object verbatim to `eth_signTypedData_v4`; (b) backends with direct key access compute `keccak256('\x19\x01' || domainSeparator || hashStruct(message))` with any EIP-712 library and sign with secp256k1. Both approaches produce the same 65-byte signature to submit to `PUT /payments/{paymentId}/sign`."""
 
     domain: EIP712Domain
-    types: _EIP712Types
+    types: Dict[str, Any]
     primaryType: Literal["TransferWithAuthorization"]
     message: EIP3009Message
 
@@ -89,43 +86,43 @@ class SigningPayload(TypedDict):
 # ================================================================
 
 
-class CreatePaymentRequest(TypedDict):
-    """Body for payments.create_payment()."""
+class _CreatePaymentRequestRequired(TypedDict):
+    """Parameters needed to create a payment intent. The API generates a unique `paymentId`, applies its fixed policy config, and constructs the EIP-712 signing payload."""
 
-    payment: PaymentConfig
-    amount: Uint256String
+    payment: PaymentInput
     chainId: int
+
+
+class CreatePaymentRequest(_CreatePaymentRequestRequired, total=False):
     mode: Literal["authorize", "charge"]
 
 
 class PayerSignatureRequest(TypedDict):
-    """Body for payments.sign(). EIP-712 signature components."""
+    """EIP-712 signature over the `signingPayload` returned by `POST /payments`. Browser wallets return this directly from `eth_signTypedData_v4`; backends produce it with any EIP-712 library. The on-chain verification only checks the recovered address."""
 
-    v: int
-    r: Bytes32
-    s: Bytes32
+    signature: str
 
 
 class CapturePaymentRequest(TypedDict):
-    """Body for payments.prepare_capture(). Amount to capture from escrow."""
+    """Amount to capture from escrow. May be less than the total capturable balance for a partial capture."""
 
     amount: Uint256String
 
 
 class SubmitTransactionRequest(TypedDict):
-    """Body for submit_capture(), submit_void(), submit_approve(), submit_refund()."""
+    """Signed transaction to submit on-chain."""
 
     signedTransaction: str
 
 
 class ApproveRequest(TypedDict):
-    """Body for payments.prepare_approve(). Allowance to grant the RAIL0 contract."""
+    """Amount to approve on the token contract. Setting this to the maximum expected refund (or `type(uint256).max` for unlimited) avoids repeated approvals."""
 
     amount: Uint256String
 
 
 class RefundPaymentRequest(TypedDict):
-    """Body for payments.prepare_refund(). Amount to refund to the payer."""
+    """Amount to refund to the payer. Must be > 0 and <= current refundableAmount."""
 
     amount: Uint256String
 
@@ -136,37 +133,34 @@ class RefundPaymentRequest(TypedDict):
 
 
 class CreatePaymentResponse(TypedDict):
-    """Returned by payments.create_payment()."""
-
     paymentId: Bytes32
     configHash: Bytes32
     payment: PaymentConfig
-    amount: Uint256String
     chainId: int
     rail0Contract: Address
     signingPayload: SigningPayload
 
 
-class PayerSignatureResponse(TypedDict):
-    """Returned by payments.sign()."""
-
+class _PayerSignatureResponseRequired(TypedDict):
     paymentId: Bytes32
     status: Literal["signature_stored"]
+
+
+class PayerSignatureResponse(_PayerSignatureResponseRequired, total=False):
     recoveredPayer: Address
 
 
-class AuthorizePaymentResponse(TypedDict):
-    """Returned by payments.authorize()."""
-
+class _AuthorizePaymentResponseRequired(TypedDict):
     paymentId: Bytes32
     transactionHash: Bytes32
     capturableAmount: Uint256String
+
+
+class AuthorizePaymentResponse(_AuthorizePaymentResponseRequired, total=False):
     authorizationExpiry: int
 
 
 class ChargePaymentResponse(TypedDict):
-    """Returned by payments.charge()."""
-
     paymentId: Bytes32
     transactionHash: Bytes32
     chargedAmount: Uint256String
@@ -175,7 +169,7 @@ class ChargePaymentResponse(TypedDict):
 
 
 class PrepareTransactionResponse(TypedDict):
-    """Returned by prepare operations. An unsigned EIP-1559 transaction ready for signing."""
+    """An unsigned EIP-1559 transaction ready for the payee to sign. Signing options: (a) wallet users pass `unsignedTransaction` to `eth_signTransaction`; (b) backends with direct key access sign the RLP blob with any secp256k1 library (e.g. `wallet.signTransaction` in ethers.js). Submit the resulting signed RLP to the corresponding `/submit` endpoint."""
 
     unsignedTransaction: str
     to: Address
@@ -187,37 +181,32 @@ class PrepareTransactionResponse(TypedDict):
     gasLimit: Uint256String
 
 
-class CapturePaymentResponse(TypedDict):
-    """Returned by payments.submit_capture()."""
-
+class _CapturePaymentResponseRequired(TypedDict):
     paymentId: Bytes32
     transactionHash: Bytes32
     capturedAmount: Uint256String
-    feeAmount: Uint256String
     capturableAmount: Uint256String
     refundableAmount: Uint256String
+
+
+class CapturePaymentResponse(_CapturePaymentResponseRequired, total=False):
+    feeAmount: Uint256String
     authorizationExpiry: int
 
 
 class VoidPaymentResponse(TypedDict):
-    """Returned by payments.submit_void()."""
-
     paymentId: Bytes32
     transactionHash: Bytes32
     releasedAmount: Uint256String
 
 
 class ReleasePaymentResponse(TypedDict):
-    """Returned by payments.release()."""
-
     paymentId: Bytes32
     transactionHash: Bytes32
     releasedAmount: Uint256String
 
 
 class ApproveResponse(TypedDict):
-    """Returned by payments.submit_approve()."""
-
     transactionHash: Bytes32
     token: Address
     spender: Address
@@ -225,16 +214,26 @@ class ApproveResponse(TypedDict):
 
 
 class RefundPaymentResponse(TypedDict):
-    """Returned by payments.submit_refund()."""
-
     paymentId: Bytes32
     transactionHash: Bytes32
     refundedAmount: Uint256String
     refundableAmount: Uint256String
 
 
-class ApiErrorBody(TypedDict):
-    """Shape of error responses from the RAIL0 API."""
+class PaymentMethod(TypedDict):
+    """A single accepted payment method for a merchant: one (chain, token, wallet) combination."""
 
+    id: int
+    tokenId: int
+    chainId: int
+    chainName: str
+    tokenAddress: Address
+    tokenSymbol: str
+    tokenDecimals: int
+    walletAddress: Address
+    isDefault: bool
+
+
+class ApiErrorBody(TypedDict):
     code: str
     message: str
