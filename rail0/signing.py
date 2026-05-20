@@ -177,7 +177,7 @@ class SignTransferParams:
 class SignPaymentParams:
     """Parameters for signing an authorize or charge call.
 
-    Obtain the nonce from client.payments.authorize_nonce() or charge_nonce().
+    Obtain the nonce from create_payment() response: resp["signingPayload"]["message"]["nonce"].
     The contract hardcodes validAfter=0 and validBefore=payment.authorizationExpiry;
     these are not configurable by the caller.
     """
@@ -190,7 +190,7 @@ class SignPaymentParams:
     """Amount to pull from the payer, in token base units."""
 
     nonce: Bytes32
-    """Nonce from client.payments.authorize_nonce(payment_id, config_hash) or charge_nonce(...)."""
+    """Nonce from create_payment() response: resp["signingPayload"]["message"]["nonce"]."""
 
     contract_address: Address
     """Deployed RAIL0 contract address — receives the escrowed funds."""
