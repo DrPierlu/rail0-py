@@ -227,11 +227,53 @@ class PaymentMethod(TypedDict):
     tokenId: int
     chainId: int
     chainName: str
+    chainSlug: str
+    explorerUrl: str
     tokenAddress: Address
     tokenSymbol: str
     tokenDecimals: int
     walletAddress: Address
     isDefault: bool
+
+
+class OnChainState(TypedDict):
+    """Live on-chain escrow balances for a payment."""
+
+    exists: bool
+    capturableAmount: Uint256String
+    refundableAmount: Uint256String
+
+
+class _PaymentResponseRequired(TypedDict):
+    paymentId: Bytes32
+    status: str
+    mode: str
+    amount: Uint256String
+    payer: Address
+    payee: Address
+    token: Address
+    chainId: int
+    authorizationExpiry: int
+    refundExpiry: int
+
+
+class PaymentResponse(_PaymentResponseRequired, total=False):
+    """Returned by payments.get(). Combines DB status with live on-chain balances."""
+
+    onChain: OnChainState
+
+
+class ReleaseRequest(TypedDict, total=False):
+    """Optional body for payments.prepare_release(). Pass callerAddress for buyer-initiated release."""
+
+    callerAddress: Address
+
+
+class SubmitApproveRequest(TypedDict):
+    """Body for payments.submit_approve(). Include amount so the API records it."""
+
+    signedTransaction: str
+    amount: Uint256String  # optional but recommended
 
 
 class ApiErrorBody(TypedDict):

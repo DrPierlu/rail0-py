@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .core.http import HttpClient, Logger
+from .resources.merchants import MerchantsResource
 from .resources.payments import PaymentsResource
 
 
@@ -11,12 +12,18 @@ class Rail0Client:
 
     ```python
     client = Rail0Client(base_url="https://api.rail0.xyz")
-    resp = client.payments.create_payment({"payment": config, "amount": "50000000", "chainId": 84532, "mode": "authorize"})
+    methods = client.merchants.payment_methods(1)
+    resp = client.payments.create_payment({"payment": config, "chainId": 84532, "mode": "authorize"})
     ```
     """
 
+    merchants: MerchantsResource
+    """Merchant configuration operations: payment_methods."""
+
     payments: PaymentsResource
-    """Payment lifecycle operations: create, sign, authorize, charge, capture, void, release, approve, refund."""
+    """Payment lifecycle operations: get, create_payment, sign, authorize, submit_authorize,
+    charge, prepare_capture, submit_capture, prepare_void, submit_void, prepare_release,
+    submit_release, prepare_approve, submit_approve, prepare_refund, submit_refund."""
 
     def __init__(
         self,
@@ -47,4 +54,5 @@ class Rail0Client:
             max_retries=max_retries,
             retry_delay=retry_delay,
         )
+        self.merchants = MerchantsResource(http)
         self.payments = PaymentsResource(http)

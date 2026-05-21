@@ -34,7 +34,7 @@ payment = {
     "payer":               "0xBuyer...",
     "payee":               "0xMerchant...",
     "token":               "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # USDC on Base
-    "maxAmount":           "100000000",   # 100 USDC (6 decimals)
+    "amount":              "100000000",   # 100 USDC (6 decimals)
     "authorizationExpiry": now + 3600 * 24,     # 24 h to capture
     "refundExpiry":        now + 3600 * 24 * 7, # 7-day refund window
     "feeBps":              50,                  # 0.5% protocol fee
@@ -334,7 +334,7 @@ Common error codes:
 | `AuthorizationExpired`  | `authorizationExpiry` is in the past (capture)              |
 | `AuthorizationNotExpired` | `authorizationExpiry` has not passed yet (release)        |
 | `RefundExpired`         | `refundExpiry` is in the past                               |
-| `InvalidAmount`         | `amount` is 0 or exceeds `maxAmount`                        |
+| `InvalidAmount`         | `amount` is 0                                               |
 | `InvalidCaptureAmount`  | `amount` exceeds `capturableAmount`                         |
 | `InvalidRefundAmount`   | `amount` exceeds `refundableAmount`                         |
 | `TokenNotAccepted`      | token is not in this deployment's allowlist                 |
@@ -363,7 +363,7 @@ Supported chains: `ethereum`, `base`, `polygon`, `arbitrumOne`, `optimism`, `ava
 
 ```text
 gen/
-  openapi.json      source of truth for the API surface
+  generate.py       regenerates rail0/resources/types.py from the schema
 
 rail0/
   __init__.py       public re-exports
@@ -408,6 +408,19 @@ mypy rail0
 
 # Lint
 ruff check rail0 tests
+```
+
+### Regenerate types after an API change
+
+```bash
+# 1. Update the schema in rail0-api (sibling repo),
+#    or set RAIL0_SCHEMA_PATH to point to a local file.
+
+# 2. Regenerate rail0/resources/types.py
+python3 gen/generate.py
+
+# 3. Check for breakage
+mypy rail0
 ```
 
 ---
