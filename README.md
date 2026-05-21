@@ -1,8 +1,8 @@
 # rail0
 
-Python SDK for the [RAIL0](https://github.com/your-org/rail0) stablecoin payment API.
+Python SDK for the [RAIL0](https://github.com/commercelayer/rail0) stablecoin payment API.
 
-RAIL0 is an immutable smart contract that brings the authorize → capture → refund lifecycle of card networks to stablecoin payments — no intermediaries, no protocol fee, no permission required. This SDK wraps the REST API that sits in front of the contract, giving you fully-typed access to every operation from any Python environment.
+RAIL0 is an immutable smart contract that brings the authorize → capture → refund lifecycle of card networks to stablecoin payments — no intermediaries, no protocol fees, no permission required. This SDK wraps the REST API that sits in front of the contract, giving you fully-typed access to every operation from any Python environment.
 
 ## Requirements
 
@@ -27,56 +27,72 @@ from rail0 import Rail0Client
 
 client = Rail0Client(base_url="https://api.rail0.xyz")
 
-import time
-now = int(time.time())
+# Step 1 — discover payment methods
+methods = client.merchants.payment_methods(1)
+usdc = next(m for m in methods if m["tokenSymbol"] == "USDC")
 
-payment = {
-    "payer":               "0xBuyer...",
-    "payee":               "0xMerchant...",
-    "token":               "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",  # USDC on Base
-    "amount":              "100000000",   # 100 USDC (6 decimals)
-    "authorizationExpiry": now + 3600 * 24,     # 24 h to capture
-    "refundExpiry":        now + 3600 * 24 * 7, # 7-day refund window
-    "feeBps":              50,                  # 0.5% protocol fee
-    "feeReceiver":         "0xFeeReceiver...",
-}
-
-payment_id = "0xabc..."  # your unique identifier for this payment
-
-# Step 1 — buyer locks funds in escrow (v/r/s from off-chain EIP-3009 signature)
-auth_tx = client.payments.authorize(payment_id, {
-    "payment": payment,
-    "amount": "50000000",  # 50 USDC
-    "v": 27,
-    "r": "0x...",
-    "s": "0x...",
+# Step 2 — create payment intent
+resp = client.payments.create_payment({
+    "payment": {
+        "payer": "0xBuyer...",
+        "payee": usdc["walletAddress"],
+        "token": usdc["tokenAddress"],
+    },
+    "amount": "50000000",       # 50 USDC (6 decimals)
+    "chainId": usdc["chainId"],
+    "mode": "authorize",
 })
+payment_id = resp["paymentId"]
 
-# Step 2 — merchant releases them
-capture_tx = client.payments.capture(payment_id, {
-    "payment": payment,
-    "amount": "50000000",
-})
+# Step 3 — payer signs EIP-3009 off-chain
+from rail0.signing import sign_authorize, SignPaymentParams, TokenDomain
+
+sig = sign_authorize(SignPaymentParams(
+    private_key="0x...",
+    payment=resp["payment"],
+    amount=int(resp["amount"]),
+    nonce=resp["signingPayload"]["message"]["nonce"],
+    contract_address=resp["rail0Contract"],
+    token_domain=TokenDomain(
+        name="USD Coin", version="2",
+        chain_id=usdc["chainId"], verifying_contract=usdc["tokenAddress"],
+    ),
+))
+
+# Step 4 — submit payer signature
+client.payments.sign(payment_id, {"v": sig.v, "r": sig.r, "s": sig.s})
+
+# Step 5 — payee prepares the unsigned authorize tx
+tx = client.payments.authorize(payment_id)
+# sign tx["unsignedTransaction"] with payee's key (EIP-1559)
+
+# Step 6 — broadcast signed authorize tx
+client.payments.submit_authorize(payment_id, {"signedTransaction": signed_bytes})
+
+# Step 7 — payee captures the funds
+capture_tx = client.payments.prepare_capture(payment_id, {"amount": "50000000"})
+client.payments.submit_capture(payment_id, {"signedTransaction": sign(capture_tx)})
 ```
 
 ## Payment lifecycle
 
 ```text
-                 authorizationExpiry    refundExpiry
-                        │                   │
- ───────────────────────┼───────────────────┼────▶ time
-  authorize / charge     │   capture / void   │   refund
-                         │   release          │
+                            authorizationExpiry       refundExpiry
+                                   │                       │
+  ─────────────────────────────────┼───────────────────────┼──────▶ time
+   create → sign → authorize       │   capture / void       │   approve+refund
+                                    │   release              │
 ```
 
-| Operation   | Caller | What it does                                    |
-|-------------|--------|-------------------------------------------------|
-| `authorize` | payer  | Locks `amount` in escrow                        |
-| `charge`    | payer  | Authorize + capture in one transaction          |
-| `capture`   | payee  | Moves escrowed funds to the merchant            |
-| `void`      | payee  | Cancels the hold, returns funds to the buyer    |
-| `release`   | anyone | Reclaims escrow after `authorizationExpiry`     |
-| `refund`    | payee  | Returns captured funds back to the buyer        |
+| Operation | Caller | What it does |
+|-----------|--------|--------------|
+| `authorize` + `submit_authorize` | payee | Prepare + broadcast the authorize tx; funds move to escrow |
+| `charge` | payee | Server-side one-shot: authorize + capture with no escrow window |
+| `prepare_capture` + `submit_capture` | payee | Moves escrowed funds to the merchant |
+| `prepare_void` + `submit_void` | payee | Cancels the hold, returns funds to the payer |
+| `prepare_release` + `submit_release` | anyone | Reclaims escrow after `authorizationExpiry` |
+| `prepare_approve` + `submit_approve` | payee | ERC-20 `approve()` required before a refund |
+| `prepare_refund` + `submit_refund` | payee | Returns captured funds to the payer |
 
 ## API reference
 
@@ -89,7 +105,7 @@ client = Rail0Client(
     base_url="https://api.rail0.xyz",
     headers={"Authorization": "Bearer ..."},  # optional
     timeout=30.0,                              # seconds, default 30
-    max_retries=3,                             # optional, default 0 (no retry)
+    max_retries=3,                             # default 0 (no retry)
     retry_delay=0.2,                           # seconds base delay, doubles each attempt
     logger=debug_logger,                       # optional — see Logging
 )
@@ -99,173 +115,127 @@ client = Rail0Client(
 
 ### Logging
 
-Pass any callable matching `(entry: LogEntry) -> None` as `logger` to receive structured log entries for every request.
+Pass any callable matching `(entry: LogEntry) -> None` as `logger`.
 
 ```python
 from rail0 import Rail0Client, debug_logger
 
-# Built-in logger — writes to stdout
 client = Rail0Client(base_url="https://api.rail0.xyz", logger=debug_logger)
 ```
 
-Output format:
-
+Output:
 ```text
-[rail0] POST 202 https://api.rail0.xyz/payments/0x.../authorize 87ms → { ... } ← { ... }
-[rail0] ERROR GET https://api.rail0.xyz/payments/0x... 30001ms ! TimeoutException
+[rail0] POST 200 https://.../payments 87ms
+[rail0] ERROR PUT https://.../payments/0x.../sign 30001ms ! TimeoutException
 ```
 
 To integrate with an existing logger:
 
 ```python
 import logging
-from rail0 import LogEntry
-
 log = logging.getLogger("rail0")
 
 client = Rail0Client(
     base_url="https://api.rail0.xyz",
-    logger=lambda entry: (
-        log.error("rail0 request failed", extra={"entry": entry})
-        if entry.error
-        else log.debug("rail0 request", extra={"entry": entry})
+    logger=lambda e: (
+        log.error("rail0 request failed", extra={"entry": e})
+        if e.error else log.debug("rail0 request", extra={"entry": e})
     ),
 )
 ```
 
-`LogEntry` fields:
+---
 
-| Field          | Type              | Present                         |
-|----------------|-------------------|---------------------------------|
-| `method`       | `str`             | always                          |
-| `url`          | `str`             | always                          |
-| `duration_ms`  | `float`           | always                          |
-| `request_body` | `Any`             | POST requests                   |
-| `status`       | `int \| None`     | when a response was received    |
-| `response_body`| `Any`             | when a response was received    |
-| `error`        | `Exception \| None` | on HTTP errors and network failures |
-| `attempt`      | `int \| None`     | when `max_retries > 0`          |
-| `will_retry`   | `bool \| None`    | when a retry is scheduled       |
+### `client.merchants`
+
+#### `.payment_methods(merchant_id)` → `list[dict]`
+
+Returns the active payment methods (chain + token + wallet) for a merchant.
+
+```python
+methods = client.merchants.payment_methods(1)
+# [{"chainId", "chainSlug", "tokenAddress", "tokenSymbol",
+#   "tokenDecimals", "walletAddress", "isDefault", ...}]
+```
 
 ---
 
 ### `client.payments`
 
-#### `.get(payment_id)`
+All methods return a `dict`. Errors raise `Rail0ApiError`.
 
-Returns the on-chain state and configuration hash for a payment.
+#### `.get(payment_id)` → `dict`
 
-```python
-result = client.payments.get(payment_id)
-# result["state"]: { "exists": bool, "capturableAmount": str, "refundableAmount": str }
-```
-
-#### `.authorize(payment_id, params)`
-
-Locks `amount` from the buyer into escrow using an EIP-3009 signature.
+Fetches the current payment state (DB status + live on-chain escrow balances).
 
 ```python
-tx = client.payments.authorize(payment_id, {
-    "payment": payment,
-    "amount": "50000000",
-    "v": 27,
-    "r": "0x...",
-    "s": "0x...",
-})
+state = client.payments.get(payment_id)
+# state["status"]                        → "authorized", "captured", …
+# state["onChain"]["capturableAmount"]   → escrowed amount still available
+# state["onChain"]["refundableAmount"]   → captured amount eligible for refund
 ```
 
-#### `.charge(payment_id, params)`
+#### `.create_payment(params)` → `dict`
 
-Authorize and capture in one transaction. Same shape as `authorize`.
+Creates a payment intent. Returns `signingPayload` for the payer to sign, plus `rail0Contract`.
 
-#### `.capture(payment_id, params)`
+#### `.sign(payment_id, params)` → `dict`
 
-Moves escrowed funds to the merchant.
+Submits the payer's EIP-712 signature (v, r, s).
+
+#### `.authorize(payment_id)` → `dict`
+
+Prepares the unsigned `authorize()` transaction. Called by the payee. Sign `unsignedTransaction` and pass to `submit_authorize`.
+
+#### `.submit_authorize(payment_id, params)` → `dict`
+
+Broadcasts the signed authorize transaction. Funds are moved to escrow.
 
 ```python
-tx = client.payments.capture(payment_id, {"payment": payment, "amount": "50000000"})
+tx = client.payments.authorize(payment_id)
+res = client.payments.submit_authorize(payment_id, {"signedTransaction": signed_bytes})
+# res["transactionHash"], res["capturableAmount"]
 ```
 
-#### `.void(payment_id, params)`
+#### `.charge(payment_id)` → `dict`
 
-Cancels an authorization and returns escrowed funds to the buyer.
+Server-side one-shot: authorize + capture in a single transaction. No `submit` step. Called by the payee.
+
+#### `.prepare_capture(payment_id, params)` / `.submit_capture(payment_id, params)`
+
+Build and broadcast the capture transaction. Partial captures are supported.
 
 ```python
-tx = client.payments.void(payment_id, {"payment": payment})
+tx = client.payments.prepare_capture(payment_id, {"amount": "50000000"})
+res = client.payments.submit_capture(payment_id, {"signedTransaction": signed})
+# res["capturedAmount"], res["capturableAmount"], res["refundableAmount"]
 ```
 
-#### `.release(payment_id, params)`
+#### `.prepare_void(payment_id)` / `.submit_void(payment_id, params)`
 
-Returns escrowed funds to the buyer after `authorizationExpiry`. Permissionless.
+Void the authorization — releases all escrowed funds to the payer.
+
+#### `.prepare_release(payment_id, params?)` / `.submit_release(payment_id, params)`
+
+Release escrowed funds after `authorizationExpiry`. Pass `{"callerAddress": addr}` for buyer-initiated release.
 
 ```python
-tx = client.payments.release(payment_id, {"payment": payment})
+tx = client.payments.prepare_release(payment_id, {"callerAddress": buyer_addr})
+client.payments.submit_release(payment_id, {"signedTransaction": buyer_signed})
 ```
 
-#### `.refund(payment_id, params)`
+#### `.prepare_approve(payment_id, params)` / `.submit_approve(payment_id, params)`
 
-Returns previously captured funds from the merchant to the buyer.
+ERC-20 `approve()` before a refund. Include `amount` in `submit_approve` so the API records it.
 
 ```python
-tx = client.payments.refund(payment_id, {"payment": payment, "amount": "50000000"})
+tx = client.payments.prepare_approve(payment_id, {"amount": "50000000"})
+client.payments.submit_approve(payment_id, {"signedTransaction": signed, "amount": "50000000"})
 ```
 
-#### `.authorize_nonce(payment_id, payer)`
+#### `.prepare_refund(payment_id, params)` / `.submit_refund(payment_id, params)`
 
-Returns the EIP-3009 nonce for an authorize signature.
-
-```python
-result = client.payments.authorize_nonce(payment_id, payment["payer"])
-nonce = result["nonce"]
-```
-
-#### `.charge_nonce(payment_id, payer)`
-
-Returns the EIP-3009 nonce for a charge signature.
-
-#### `.hash(payment)`
-
-Computes the EIP-712 digest of a Payment configuration.
-
-```python
-result = client.payments.hash(payment)
-config_hash = result["hash"]
-```
-
----
-
-### `client.tokens`
-
-#### `.is_accepted(address)`
-
-Returns whether a token address is in this deployment's allowlist.
-
-```python
-result = client.tokens.is_accepted("0x833589...")
-# result["accepted"]: bool
-```
-
----
-
-### `client.utils`
-
-#### `.domain_separator()`
-
-Returns the EIP-712 domain separator for the RAIL0 contract.
-
-```python
-result = client.utils.domain_separator()
-domain_sep = result["domainSeparator"]
-```
-
-#### `.version()`
-
-Returns the contract version number.
-
-```python
-result = client.utils.version()
-# result["version"]: int
-```
+Build and broadcast the refund transaction. Partial refunds are supported.
 
 ---
 
@@ -274,38 +244,27 @@ result = client.utils.version()
 Install `rail0[signing]` to use the signing utilities.
 
 ```python
-from rail0 import Rail0Client
 from rail0.signing import sign_authorize, sign_charge, SignPaymentParams, TokenDomain
 
 token_domain = TokenDomain(
-    name="USD Coin",
-    version="2",
-    chain_id=8453,  # Base
-    verifying_contract=payment["token"],
+    name="USD Coin", version="2",
+    chain_id=84532,  # Base Sepolia
+    verifying_contract=usdc["tokenAddress"],
 )
 
-# Fetch nonce
-nonce = client.payments.authorize_nonce(payment_id, payment["payer"])["nonce"]
-
-# Sign off-chain
 sig = sign_authorize(SignPaymentParams(
     private_key="0x...",   # payer's private key
-    payment=payment,
-    amount=50_000_000,     # token base units
-    nonce=nonce,
-    contract_address="0x...",  # RAIL0 contract
+    payment=resp["payment"],
+    amount=int(resp["amount"]),
+    nonce=resp["signingPayload"]["message"]["nonce"],
+    contract_address=resp["rail0Contract"],
     token_domain=token_domain,
 ))
 
-# Submit
-tx = client.payments.authorize(payment_id, {
-    "payment": payment,
-    "amount": "50000000",
-    "v": sig.v,
-    "r": sig.r,
-    "s": sig.s,
-})
+# sig.v, sig.r, sig.s — pass to client.payments.sign
 ```
+
+Use `sign_charge` instead of `sign_authorize` when `mode: "charge"`.
 
 ---
 
@@ -317,27 +276,24 @@ Every 4xx / 5xx response is raised as `Rail0ApiError`:
 from rail0 import Rail0ApiError
 
 try:
-    client.payments.capture(payment_id, {"payment": payment, "amount": "50000000"})
+    client.payments.submit_capture(payment_id, {"signedTransaction": signed})
 except Rail0ApiError as err:
-    print(err.status)   # HTTP status code, e.g. 422
-    print(err.error)    # contract error name, e.g. "AuthorizationExpired"
-    print(err)          # human-readable description
+    print(err.status)  # HTTP status code, e.g. 422
+    print(err.error)   # contract error name, e.g. "AuthorizationExpired"
+    print(str(err))    # human-readable description
 ```
 
 Common error codes:
 
-| Error                   | Cause                                                       |
-|-------------------------|-------------------------------------------------------------|
-| `PaymentAlreadyExists`  | `authorize` / `charge` called twice with the same `paymentId` |
-| `PaymentNotFound`       | `paymentId` does not exist                                  |
-| `PaymentMismatch`       | `payment` config does not match the stored hash             |
-| `AuthorizationExpired`  | `authorizationExpiry` is in the past (capture)              |
-| `AuthorizationNotExpired` | `authorizationExpiry` has not passed yet (release)        |
-| `RefundExpired`         | `refundExpiry` is in the past                               |
-| `InvalidAmount`         | `amount` is 0                                               |
-| `InvalidCaptureAmount`  | `amount` exceeds `capturableAmount`                         |
-| `InvalidRefundAmount`   | `amount` exceeds `refundableAmount`                         |
-| `TokenNotAccepted`      | token is not in this deployment's allowlist                 |
+| Error | Cause |
+|-------|-------|
+| `PaymentAlreadyExists` | `authorize` / `charge` called twice with the same `paymentId` |
+| `PaymentNotFound` | `paymentId` does not exist |
+| `AuthorizationExpired` | `authorizationExpiry` is in the past (capture) |
+| `AuthorizationNotExpired` | `authorizationExpiry` has not passed yet (release) |
+| `RefundExpired` | `refundExpiry` is in the past |
+| `InvalidAmount` | `amount` is 0 |
+| `NotPayee` | caller is not `payment.payee` |
 
 ---
 
@@ -350,14 +306,27 @@ from rail0 import stablecoins, eip3009_tokens
 tokens = eip3009_tokens("base")
 # [{"symbol": "USDC", "address": "0x833589...", "decimals": 6}]
 
-# Direct lookup
-usdc = stablecoins["base"].tokens["USDC"]
-print(usdc.address, usdc.decimals, usdc.eip3009)
+# Chain metadata
+chain = stablecoins["base"]
+print(chain.chain_id)  # 8453
 ```
 
-Supported chains: `ethereum`, `base`, `polygon`, `arbitrumOne`, `optimism`, `avalanche`, `celo`.
-
 ---
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest
+mypy rail0
+ruff check rail0 tests
+
+# Regenerate rail0/resources/types.py after an API change:
+# 1. Update the schema in rail0-api (sibling repo),
+#    or set RAIL0_SCHEMA_PATH to point to a local file.
+# 2. Regenerate:
+python3 gen/generate.py
+```
 
 ## Project structure
 
@@ -367,60 +336,23 @@ gen/
 
 rail0/
   __init__.py       public re-exports
-  client.py         Rail0Client — assembles the resources
+  client.py         Rail0Client — entry point
   signing.py        EIP-712 / EIP-3009 off-chain signing (optional dep)
-  stablecoins.py    hardcoded stablecoin addresses and helpers
+  stablecoins.py    stablecoin address registry
 
   core/
     error.py        Rail0ApiError
     http.py         HttpClient (httpx, timeout, retry, logging)
 
   resources/
-    types.py        TypedDict shapes from the OpenAPI schema
+    types.py        TypedDict shapes
+    merchants.py    MerchantsResource
     payments.py     PaymentsResource
-    tokens.py       TokensResource
-    utils.py        UtilsResource
-
-examples/
-  01_authorize_and_capture.py
-  02_charge.py
-  03_refund.py
 
 tests/
   test_client.py
   test_signing.py
   test_http.py
-```
-
----
-
-## Development
-
-```bash
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Type check
-mypy rail0
-
-# Lint
-ruff check rail0 tests
-```
-
-### Regenerate types after an API change
-
-```bash
-# 1. Update the schema in rail0-api (sibling repo),
-#    or set RAIL0_SCHEMA_PATH to point to a local file.
-
-# 2. Regenerate rail0/resources/types.py
-python3 gen/generate.py
-
-# 3. Check for breakage
-mypy rail0
 ```
 
 ---
