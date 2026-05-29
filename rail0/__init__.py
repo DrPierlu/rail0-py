@@ -35,6 +35,7 @@ from .resources.types import (
     PaymentMethod,
     ApiErrorBody,
 )
+from .resources.catalog import Blockchain, CatalogResource, Token
 from .stablecoins import StablecoinInfo, ChainStablecoins, stablecoins, chain_info, eip3009_tokens, eip2612_tokens
 
 __all__ = [
@@ -76,6 +77,10 @@ __all__ = [
     "RefundPaymentResponse",
     "PaymentMethod",
     "ApiErrorBody",
+    # Catalog
+    "Blockchain",
+    "CatalogResource",
+    "Token",
     # Stablecoins
     "StablecoinInfo",
     "ChainStablecoins",
