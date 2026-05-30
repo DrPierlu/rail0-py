@@ -29,9 +29,10 @@ class Rail0Client:
     """Supported token catalog: list."""
 
     payments: PaymentsResource
-    """Payment lifecycle operations: get, create_payment, sign, authorize, submit_authorize,
-    charge, prepare_capture, submit_capture, prepare_void, submit_void, prepare_release,
-    submit_release, prepare_approve, submit_approve, prepare_refund, submit_refund."""
+    """Payment lifecycle operations: get, create_payment, sign,
+    authorize_payload/authorize, charge_payload/charge,
+    capture_payload/capture, void_payload/void,
+    release_payload/release, refund_payload/refund."""
 
     def __init__(
         self,

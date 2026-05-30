@@ -5,5 +5,4 @@ from .types import (
     PaymentMethod,
     PaymentResponse,
     ReleaseRequest,
-    SubmitApproveRequest,
 )

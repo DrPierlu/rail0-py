@@ -19,7 +19,6 @@ from .resources.types import (
     PayerSignatureRequest,
     CapturePaymentRequest,
     SubmitTransactionRequest,
-    ApproveRequest,
     RefundPaymentRequest,
     # Response shapes
     CreatePaymentResponse,
@@ -30,7 +29,6 @@ from .resources.types import (
     CapturePaymentResponse,
     VoidPaymentResponse,
     ReleasePaymentResponse,
-    ApproveResponse,
     RefundPaymentResponse,
     PaymentMethod,
     ApiErrorBody,
@@ -62,7 +60,6 @@ __all__ = [
     "PayerSignatureRequest",
     "CapturePaymentRequest",
     "SubmitTransactionRequest",
-    "ApproveRequest",
     "RefundPaymentRequest",
     # Response shapes
     "CreatePaymentResponse",
@@ -73,7 +70,6 @@ __all__ = [
     "CapturePaymentResponse",
     "VoidPaymentResponse",
     "ReleasePaymentResponse",
-    "ApproveResponse",
     "RefundPaymentResponse",
     "PaymentMethod",
     "ApiErrorBody",

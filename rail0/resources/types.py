@@ -115,12 +115,6 @@ class SubmitTransactionRequest(TypedDict):
     signedTransaction: str
 
 
-class ApproveRequest(TypedDict):
-    """Amount to approve on the token contract. Setting this to the maximum expected refund (or `type(uint256).max` for unlimited) avoids repeated approvals."""
-
-    amount: Uint256String
-
-
 class RefundPaymentRequest(TypedDict):
     """Amount to refund to the payer. Must be > 0 and <= current refundableAmount."""
 
@@ -206,13 +200,6 @@ class ReleasePaymentResponse(TypedDict):
     releasedAmount: Uint256String
 
 
-class ApproveResponse(TypedDict):
-    transactionHash: Bytes32
-    token: Address
-    spender: Address
-    amount: Uint256String
-
-
 class RefundPaymentResponse(TypedDict):
     paymentId: Bytes32
     transactionHash: Bytes32
@@ -267,13 +254,6 @@ class ReleaseRequest(TypedDict, total=False):
     """Optional body for payments.prepare_release(). Pass callerAddress for buyer-initiated release."""
 
     callerAddress: Address
-
-
-class SubmitApproveRequest(TypedDict):
-    """Body for payments.submit_approve(). Include amount so the API records it."""
-
-    signedTransaction: str
-    amount: Uint256String  # optional but recommended
 
 
 class ApiErrorBody(TypedDict):
