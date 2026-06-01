@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .core.http import HttpClient, Logger
+from .resources.auth import AuthResource
 from .resources.accounts import AccountsResource
 from .resources.chains import ChainsResource
 from .resources.tokens import TokensResource
@@ -18,6 +19,9 @@ class Rail0Client:
     resp = client.payments.create_payment({"payment": config, "chainId": 84532, "mode": "authorize"})
     ```
     """
+
+    auth: AuthResource
+    """SIWE authentication operations: get_nonce, verify, login."""
 
     accounts: AccountsResource
     """Account configuration operations: payment_methods."""
@@ -63,6 +67,7 @@ class Rail0Client:
             max_retries=max_retries,
             retry_delay=retry_delay,
         )
+        self.auth = AuthResource(http)
         self.accounts = AccountsResource(http)
         self.chains = ChainsResource(http)
         self.tokens = TokensResource(http)

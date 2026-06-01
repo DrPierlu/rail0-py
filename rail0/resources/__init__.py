@@ -1,4 +1,4 @@
-from .merchants import MerchantsResource
+from .auth import AuthResource
 from .payments import PaymentsResource
 from .types import (
     OnChainState,
