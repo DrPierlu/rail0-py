@@ -34,9 +34,9 @@ class Rail0Client:
 
     payments: PaymentsResource
     """Payment lifecycle operations: get, create_payment, sign,
-    authorize_payload/authorize, charge_payload/charge,
-    capture_payload/capture, void_payload/void,
-    release_payload/release, refund_payload/refund."""
+    authorize_prepare/authorize, charge_prepare/charge,
+    capture_prepare/capture, void_prepare/void,
+    release_prepare/release, refund_prepare/refund."""
 
     def __init__(
         self,

@@ -147,7 +147,7 @@ class AuthResource:
         Returns:
             A dict with ``nonce`` (str) and ``expires_at`` (ISO-8601 str).
         """
-        return self._http.get("/auth/nonce")  # type: ignore[return-value]
+        return self._http.post("/nonces", {})  # type: ignore[return-value]
 
     def verify(self, message: str, signature: str) -> AuthResponse:
         """Submit a signed SIWE message to the API and obtain a JWT.
@@ -170,7 +170,7 @@ class AuthResource:
 
         Steps:
 
-        1. ``GET /auth/nonce`` — obtain a fresh nonce.
+        1. ``POST /nonces`` — obtain a fresh nonce.
         2. Build an EIP-4361 message for *domain* and the address derived from *private_key_hex*.
         3. Sign the message with EIP-191 personal_sign using *private_key_hex*.
         4. ``POST /auth`` — verify the signature and return a JWT.

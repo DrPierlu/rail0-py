@@ -34,7 +34,7 @@ AUTH_RESPONSE = {
 
 @respx.mock
 def test_get_nonce():
-    respx.get(f"{BASE_URL}/auth/nonce").mock(
+    respx.post(f"{BASE_URL}/nonces").mock(
         return_value=httpx.Response(200, json=NONCE_RESPONSE)
     )
     client = Rail0Client(base_url=BASE_URL)
@@ -74,7 +74,7 @@ def test_verify():
 
 @respx.mock
 def test_login_full_flow():
-    respx.get(f"{BASE_URL}/auth/nonce").mock(
+    respx.post(f"{BASE_URL}/nonces").mock(
         return_value=httpx.Response(200, json=NONCE_RESPONSE)
     )
     auth_route = respx.post(f"{BASE_URL}/auth").mock(
