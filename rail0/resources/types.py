@@ -97,6 +97,8 @@ class _CreatePaymentRequestRequired(TypedDict):
 
 class CreatePaymentRequest(_CreatePaymentRequestRequired, total=False):
     mode: Literal["authorize", "charge"]
+    description: str
+    metadata: Dict[str, Any]
 
 
 class PayerSignatureRequest(TypedDict):
@@ -141,13 +143,18 @@ class RefundPaymentRequest(TypedDict):
 # ================================================================
 
 
-class CreatePaymentResponse(TypedDict):
+class _CreatePaymentResponseRequired(TypedDict):
     rail0_id: Bytes32
     config_hash: Bytes32
     payment: PaymentConfig
     chain_id: int
     rail0_contract: Address
     signing_payload: SigningPayload
+
+
+class CreatePaymentResponse(_CreatePaymentResponseRequired, total=False):
+    description: str
+    metadata: Dict[str, Any]
 
 
 class PayerSignatureResponse(TypedDict):
@@ -172,6 +179,8 @@ class _GetPaymentResponseRequired(TypedDict):
 
 
 class GetPaymentResponse(_GetPaymentResponseRequired, total=False):
+    description: str
+    metadata: Dict[str, Any]
     on_chain: Dict[str, Any]
     last_broadcast_hash: Bytes32
     failure_code: str
@@ -204,6 +213,66 @@ class PaymentMethod(TypedDict):
     token_decimals: int
     wallet_address: Address
     default: bool
+
+
+class _WalletTokenRequired(TypedDict):
+    """A wallet token configuration linking a wallet address to a specific token on a chain."""
+
+    id: str
+    wallet_id: str
+    address: Address
+    default: bool
+    active: bool
+    token_id: str
+    token_symbol: str
+    token_address: Address
+    token_decimals: int
+    chain_id: int
+    chain_name: str
+    chain_slug: str
+
+
+class WalletToken(_WalletTokenRequired, total=False):
+    label: str
+
+
+class _PaymentSummaryRequired(TypedDict):
+    """Condensed payment record returned by GET /payments."""
+
+    rail0_id: Bytes32
+    status: str
+    mode: Literal["authorize", "charge"]
+    amount: str
+    payer: Address
+    payee: Address
+    token: Address
+    authorization_expiry: int
+    refund_expiry: int
+    created_at: str
+
+
+class PaymentSummary(_PaymentSummaryRequired, total=False):
+    description: str
+    metadata: Dict[str, Any]
+
+
+class _TransactionRecordRequired(TypedDict):
+    """An on-chain transaction attempt associated with a payment."""
+
+    id: str
+    operation: Literal["authorize", "charge", "capture", "void", "release", "refund"]
+    status: Literal["pending", "submitting", "submitted", "confirmed", "failed"]
+    fee_amount: str
+
+
+class TransactionRecord(_TransactionRecordRequired, total=False):
+    transaction_hash: Bytes32
+    amount: str
+    block_number: int
+    error_reason: str
+    pending_at: str
+    submitted_at: str
+    confirmed_at: str
 
 
 class _TransactionRequired(TypedDict):
@@ -244,6 +313,22 @@ class _ConfirmTransactionRequestRequired(TypedDict):
 
 class ConfirmTransactionRequest(_ConfirmTransactionRequestRequired, total=False):
     amount: Uint256String
+
+
+class _AccountRequired(TypedDict):
+    """A RAIL0 merchant account."""
+
+    id: str
+    name: str
+    slug: str
+    email: str
+    active: bool
+    created_at: str
+
+
+class Account(_AccountRequired, total=False):
+    fee_bps: int
+    updated_at: str
 
 
 
