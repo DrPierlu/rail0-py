@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-Code generator for rail0/resources/types.py.
+Code generator for the RAIL0 Python SDK.
 
-Reads the OpenAPI schema from ../rail0-api/doc/openapi.json
-(or the path in the RAIL0_SCHEMA_PATH env var) and writes
-rail0/resources/types.py.
+Reads the OpenAPI schema from ../rail0-api/docs/openapi.json
+(or the path in the RAIL0_SCHEMA_PATH env var) and writes:
+  - rail0/resources/types.py
+  - rail0/resources/accounts.py
+  - rail0/resources/payments.py
+  - rail0/resources/chains.py
+  - rail0/resources/tokens.py
 
 Usage:
     python gen/generate.py
@@ -25,12 +29,12 @@ from typing import Any, Dict, List, Set, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 
-DEFAULT_SCHEMA_PATH = REPO_ROOT.parent / "rail0-api" / "doc" / "openapi.json"
+DEFAULT_SCHEMA_PATH = REPO_ROOT.parent / "rail0-api" / "docs" / "openapi.json"
 SCHEMA_PATH = Path(os.environ.get("RAIL0_SCHEMA_PATH", str(DEFAULT_SCHEMA_PATH)))
-OUTPUT_PATH = REPO_ROOT / "rail0" / "resources" / "types.py"
+RESOURCES_DIR = REPO_ROOT / "rail0" / "resources"
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers for types.py generation
 # ---------------------------------------------------------------------------
 
 # Schemas whose type is `string` (no `properties`) — emitted as simple aliases.
@@ -66,19 +70,18 @@ EMIT_ORDER = [
     "PayerSignatureRequest",
     "CapturePaymentRequest",
     "SubmitTransactionRequest",
-    "ApproveRequest",
+    "SubmitTransactionAcceptedResponse",
+    "ReleaseRequest",
     "RefundPaymentRequest",
     "CreatePaymentResponse",
     "PayerSignatureResponse",
-    "AuthorizePaymentResponse",
-    "ChargePaymentResponse",
+    "GetPaymentResponse",
     "PrepareTransactionResponse",
-    "CapturePaymentResponse",
-    "VoidPaymentResponse",
-    "ReleasePaymentResponse",
-    "ApproveResponse",
-    "RefundPaymentResponse",
     "PaymentMethod",
+    "WalletToken",
+    "PaymentSummary",
+    "TransactionRecord",
+    "Transaction",
     "Error",
 ]
 
@@ -159,8 +162,8 @@ def emit_typeddict(
     properties: Dict[str, Any] = schema.get("properties", {})
 
     # Split into required and optional field lists (preserving source order)
-    req_fields: List[Tuple[str, str, str]] = []   # (json_name, py_name, type_str)
-    opt_fields: List[Tuple[str, str, str]] = []
+    req_fields: List[Tuple[str, str, str, str]] = []   # (json_name, py_name, type_str, desc)
+    opt_fields: List[Tuple[str, str, str, str]] = []
 
     for json_name, prop_schema in properties.items():
         # Handle Python keyword renames
@@ -235,17 +238,11 @@ def emit_typeddict(
     return "\n".join(lines)
 
 
-def generate(schema_path: Path, output_path: Path) -> None:
-    if not schema_path.exists():
-        print(f"ERROR: schema not found at {schema_path}", file=sys.stderr)
-        print("Set RAIL0_SCHEMA_PATH to override the default location.", file=sys.stderr)
-        sys.exit(1)
+# ---------------------------------------------------------------------------
+# Generate types.py
+# ---------------------------------------------------------------------------
 
-    with schema_path.open() as f:
-        spec = json.load(f)
-
-    schemas: Dict[str, Any] = spec["components"]["schemas"]
-
+def generate_types(schemas: Dict[str, Any], output_path: Path) -> None:
     # Determine emit order: use EMIT_ORDER first, then any remaining schemas.
     ordered_names: List[str] = []
     for name in EMIT_ORDER:
@@ -255,17 +252,15 @@ def generate(schema_path: Path, output_path: Path) -> None:
         if name not in ordered_names:
             ordered_names.append(name)
 
-    # ---------------------------------------------------------------------------
-    # Build output
-    # ---------------------------------------------------------------------------
     parts: List[str] = []
 
     # File header
     parts.append('''\
+# GENERATED — DO NOT EDIT. Run `python gen/generate.py` to regenerate.
 """
 Public types for the RAIL0 Python SDK.
 
-All types mirror the OpenAPI schema in rail0-api/doc/openapi.json.
+All types mirror the OpenAPI schema in rail0-api/docs/openapi.json.
 Request / response bodies use camelCase keys to match the JSON wire format.
 
 This file is generated — do not hand-edit. Run `python gen/generate.py` to regenerate.
@@ -287,15 +282,15 @@ from typing_extensions import TypedDict
             parts.append(emit_alias(name, PRIMITIVE_ALIASES[name]))
 
     # ---- TypedDicts ----
-    # Group into logical sections matching the original file structure
     sections = [
         ("Core models", ["PaymentConfig", "PaymentInput", "EIP712Domain", "EIP3009Message", "SigningPayload"]),
         ("Request bodies", ["CreatePaymentRequest", "PayerSignatureRequest", "CapturePaymentRequest",
-                            "SubmitTransactionRequest", "ApproveRequest", "RefundPaymentRequest"]),
-        ("Response shapes", ["CreatePaymentResponse", "PayerSignatureResponse", "AuthorizePaymentResponse",
-                              "ChargePaymentResponse", "PrepareTransactionResponse", "CapturePaymentResponse",
-                              "VoidPaymentResponse", "ReleasePaymentResponse", "ApproveResponse",
-                              "RefundPaymentResponse", "PaymentMethod", "Error"]),
+                            "SubmitTransactionRequest", "SubmitTransactionAcceptedResponse",
+                            "ReleaseRequest", "RefundPaymentRequest"]),
+        ("Response shapes", ["CreatePaymentResponse", "PayerSignatureResponse", "GetPaymentResponse",
+                              "PrepareTransactionResponse", "PaymentMethod",
+                              "WalletToken", "PaymentSummary", "TransactionRecord",
+                              "Transaction", "Error"]),
     ]
 
     # Collect which names are in a section
@@ -332,6 +327,28 @@ from typing_extensions import TypedDict
             schema = schemas[name]
             parts.append(emit_typeddict(name, schema, schemas))
 
+    # Also add extra hardcoded types
+    parts.append('''
+# ================================================================
+#  Pagination helpers (not in OpenAPI spec)
+# ================================================================
+
+
+class PageMeta(TypedDict):
+    """Pagination metadata returned by list endpoints."""
+
+    page: int
+    per_page: int
+    total: int
+
+
+class PaginatedResponse(TypedDict):
+    """Generic paginated list response."""
+
+    data: List[Any]
+    meta: PageMeta
+''')
+
     output = "".join(parts).rstrip("\n") + "\n"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -339,8 +356,322 @@ from typing_extensions import TypedDict
         f.write(output)
 
     print(f"Generated {output_path}")
-    print(f"  Schema source: {schema_path}")
+
+
+# ---------------------------------------------------------------------------
+# Generate resource files
+# ---------------------------------------------------------------------------
+
+FILE_HEADER = "# GENERATED — DO NOT EDIT. Run `python gen/generate.py` to regenerate."
+
+
+def generate_chains(output_path: Path) -> None:
+    content = f'''{FILE_HEADER}
+from __future__ import annotations
+
+from typing import List, TypedDict
+
+from ..core.http import HttpClient
+
+
+class Blockchain(TypedDict):
+    chain_id: int
+    name: str
+    slug: str
+    network_type: str
+    explorer_url: str
+
+
+class ChainsResource:
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def list(self) -> List[Blockchain]:
+        """List all active blockchains supported by RAIL0."""
+        return self._http.get("/blockchains")
+'''
+    output_path.write_text(content)
+    print(f"Generated {output_path}")
+
+
+def generate_tokens(output_path: Path) -> None:
+    content = f'''{FILE_HEADER}
+from __future__ import annotations
+
+from typing import List, Optional, TypedDict
+
+from ..core.http import HttpClient
+
+
+class Token(TypedDict):
+    chain_id: int
+    chain_slug: str
+    symbol: str
+    address: str
+    decimals: int
+
+
+class TokensResource:
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def list(self, chain_id: Optional[int] = None) -> List[Token]:
+        """List active tokens. Pass chain_id to filter by chain."""
+        path = f"/tokens?chain_id={{chain_id}}" if chain_id else "/tokens"
+        return self._http.get(path)
+'''
+    output_path.write_text(content)
+    print(f"Generated {output_path}")
+
+
+def generate_accounts(output_path: Path) -> None:
+    content = f'''{FILE_HEADER}
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
+
+from ..core.http import HttpClient
+from .types import PageMeta, PaginatedResponse, PaymentMethod, WalletToken
+
+
+class AccountsResource:
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def payment_methods(self, account_id: str) -> List[PaymentMethod]:
+        """Return the active payment methods (chain + token + wallet) for the given account."""
+        return self._http.get(f"/accounts/{{account_id}}/payment-methods")
+
+    def wallets(
+        self,
+        account_id: str,
+        *,
+        chain_id: Optional[int] = None,
+        chain_slug: Optional[str] = None,
+        token_symbol: Optional[str] = None,
+        active: Optional[bool] = None,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None,
+    ) -> PaginatedResponse:
+        """List wallet tokens for an account. Public — no JWT required."""
+        params: Dict[str, Any] = {{}}
+        if chain_id is not None:
+            params["chain_id"] = chain_id
+        if chain_slug is not None:
+            params["chain_slug"] = chain_slug
+        if token_symbol is not None:
+            params["token_symbol"] = token_symbol
+        if active is not None:
+            params["active"] = "true" if active else "false"
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+        qs = ("?" + urlencode(params)) if params else ""
+        return self._http.get(f"/accounts/{{account_id}}/wallets{{qs}}")
+
+    def wallet(self, account_id: str, wallet_id: str) -> WalletToken:
+        """Fetch a single wallet token by id for the given account."""
+        return self._http.get(f"/accounts/{{account_id}}/wallets/{{wallet_id}}")
+'''
+    output_path.write_text(content)
+    print(f"Generated {output_path}")
+
+
+def generate_payments(output_path: Path) -> None:
+    content = f'''{FILE_HEADER}
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
+
+from ..core.http import HttpClient
+from .types import (
+    CreatePaymentRequest,
+    CreatePaymentResponse,
+    CapturePaymentRequest,
+    PageMeta,
+    PaginatedResponse,
+    PayerSignatureRequest,
+    PayerSignatureResponse,
+    PrepareTransactionResponse,
+    ReleaseRequest,
+    SubmitTransactionRequest,
+    SubmitTransactionAcceptedResponse,
+    WalletToken,
+)
+
+
+class PaymentsResource:
+    def __init__(self, http: HttpClient) -> None:
+        self._http = http
+
+    def list(
+        self,
+        *,
+        status: Optional[str] = None,
+        mode: Optional[str] = None,
+        payer: Optional[str] = None,
+        payee: Optional[str] = None,
+        token: Optional[str] = None,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None,
+    ) -> PaginatedResponse:
+        """List payments for the authenticated wallet (requires JWT)."""
+        params: Dict[str, Any] = {{}}
+        if status is not None:
+            params["status"] = status
+        if mode is not None:
+            params["mode"] = mode
+        if payer is not None:
+            params["payer"] = payer
+        if payee is not None:
+            params["payee"] = payee
+        if token is not None:
+            params["token"] = token
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+        qs = ("?" + urlencode(params)) if params else ""
+        return self._http.get(f"/payments{{qs}}")
+
+    def create(self, params: CreatePaymentRequest) -> CreatePaymentResponse:
+        """Create a payment intent. Returns the EIP-712 signingPayload for the payer to sign."""
+        return self._http.post("/payments", dict(params))
+
+    def get(self, rail0_id: str) -> Any:
+        """Fetch current payment state (DB status + live on-chain amounts)."""
+        return self._http.get(f"/payments/{{rail0_id}}")
+
+    def transactions(
+        self,
+        rail0_id: str,
+        *,
+        operation: Optional[str] = None,
+        status: Optional[str] = None,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None,
+    ) -> PaginatedResponse:
+        """List on-chain transactions for a payment."""
+        params: Dict[str, Any] = {{}}
+        if operation is not None:
+            params["operation"] = operation
+        if status is not None:
+            params["status"] = status
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+        qs = ("?" + urlencode(params)) if params else ""
+        return self._http.get(f"/payments/{{rail0_id}}/transactions{{qs}}")
+
+    def sign(self, payment_id: str, params: PayerSignatureRequest) -> PayerSignatureResponse:
+        """Submit the payer's EIP-712 signature (v, r, s)."""
+        return self._http.put(f"/payments/{{payment_id}}/sign", dict(params))
+
+    # ── Authorize ────────────────────────────────────────────────────────
+
+    def authorize_prepare(self, payment_id: str) -> PrepareTransactionResponse:
+        """Prepare the unsigned authorize() transaction. Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/authorize/prepare")
+
+    def authorize(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
+        """Broadcast a signed authorize transaction (HTTP 202, async). Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/authorize", dict(params))
+
+    # ── Charge ───────────────────────────────────────────────────────────
+
+    def charge_prepare(self, payment_id: str) -> PrepareTransactionResponse:
+        """Prepare the unsigned charge() transaction (one-shot, no escrow). Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/charge/prepare")
+
+    def charge(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
+        """Broadcast a signed charge transaction (HTTP 202, async). Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/charge", dict(params))
+
+    # ── Capture ──────────────────────────────────────────────────────────
+
+    def capture_prepare(self, payment_id: str, params: CapturePaymentRequest) -> PrepareTransactionResponse:
+        """Build the unsigned capture() transaction. Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/capture/prepare", dict(params))
+
+    def capture(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
+        """Broadcast a signed capture transaction (HTTP 202, async). Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/capture", dict(params))
+
+    # ── Void ─────────────────────────────────────────────────────────────
+
+    def void_prepare(self, payment_id: str) -> PrepareTransactionResponse:
+        """Build the unsigned void() transaction. Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/void/prepare")
+
+    def void(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
+        """Broadcast a signed void transaction (HTTP 202, async). Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/void", dict(params))
+
+    # ── Release ──────────────────────────────────────────────────────────
+
+    def release_prepare(self, payment_id: str, params: Optional[ReleaseRequest] = None) -> PrepareTransactionResponse:
+        """Build the unsigned release() transaction."""
+        return self._http.post(f"/payments/{{payment_id}}/release/prepare", dict(params) if params else None)
+
+    def release(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
+        """Broadcast a signed release transaction (HTTP 202, async)."""
+        return self._http.post(f"/payments/{{payment_id}}/release", dict(params))
+
+    # ── Refund (EIP-3009) ────────────────────────────────────────────────
+
+    def refund_prepare(self, payment_id: str, amount: str, *, v: Optional[int] = None, r: Optional[str] = None, s: Optional[str] = None) -> PrepareTransactionResponse:
+        """Two-phase EIP-3009 refund flow.
+
+        Phase 1 — pass only amount: returns a signing payload.
+        Phase 2 — pass amount + v, r, s: returns unsigned refund transaction.
+        """
+        params: Dict[str, Any] = {{"amount": amount}}
+        if v is not None:
+            params["v"] = v
+        if r is not None:
+            params["r"] = r
+        if s is not None:
+            params["s"] = s
+        return self._http.post(f"/payments/{{payment_id}}/refund/prepare", params)
+
+    def refund(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
+        """Broadcast a signed refund transaction (HTTP 202, async). Called by the payee."""
+        return self._http.post(f"/payments/{{payment_id}}/refund", dict(params))
+'''
+    output_path.write_text(content)
+    print(f"Generated {output_path}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    if not SCHEMA_PATH.exists():
+        print(f"ERROR: schema not found at {SCHEMA_PATH}", file=sys.stderr)
+        print("Set RAIL0_SCHEMA_PATH to override the default location.", file=sys.stderr)
+        sys.exit(1)
+
+    with SCHEMA_PATH.open() as f:
+        spec = json.load(f)
+
+    schemas: Dict[str, Any] = spec["components"]["schemas"]
+
+    RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
+
+    generate_types(schemas, RESOURCES_DIR / "types.py")
+    generate_chains(RESOURCES_DIR / "chains.py")
+    generate_tokens(RESOURCES_DIR / "tokens.py")
+    generate_accounts(RESOURCES_DIR / "accounts.py")
+    generate_payments(RESOURCES_DIR / "payments.py")
+
+    print(f"Schema source: {SCHEMA_PATH}")
+    print("Done.")
 
 
 if __name__ == "__main__":
-    generate(SCHEMA_PATH, OUTPUT_PATH)
+    main()

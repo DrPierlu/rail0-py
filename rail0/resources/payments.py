@@ -1,25 +1,23 @@
+# GENERATED — DO NOT EDIT. Run `python gen/generate.py` to regenerate.
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 from ..core.http import HttpClient
 from .types import (
-    AuthorizePaymentResponse,
-    Bytes32,
-    CapturePaymentRequest,
-    CapturePaymentResponse,
-    ChargePaymentResponse,
     CreatePaymentRequest,
     CreatePaymentResponse,
+    CapturePaymentRequest,
+    PageMeta,
+    PaginatedResponse,
     PayerSignatureRequest,
     PayerSignatureResponse,
-    PaymentResponse,
     PrepareTransactionResponse,
-    RefundPaymentResponse,
-    ReleasePaymentResponse,
     ReleaseRequest,
     SubmitTransactionRequest,
-    VoidPaymentResponse,
+    SubmitTransactionAcceptedResponse,
+    WalletToken,
 )
 
 
@@ -27,84 +25,137 @@ class PaymentsResource:
     def __init__(self, http: HttpClient) -> None:
         self._http = http
 
-    def list(self) -> List[PaymentResponse]:
-        """List payments for the authenticated account. Requires authentication."""
-        return self._http.get("/payments")
+    def list(
+        self,
+        *,
+        status: Optional[str] = None,
+        mode: Optional[str] = None,
+        payer: Optional[str] = None,
+        payee: Optional[str] = None,
+        token: Optional[str] = None,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None,
+    ) -> PaginatedResponse:
+        """List payments for the authenticated wallet (requires JWT)."""
+        params: Dict[str, Any] = {}
+        if status is not None:
+            params["status"] = status
+        if mode is not None:
+            params["mode"] = mode
+        if payer is not None:
+            params["payer"] = payer
+        if payee is not None:
+            params["payee"] = payee
+        if token is not None:
+            params["token"] = token
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+        qs = ("?" + urlencode(params)) if params else ""
+        return self._http.get(f"/payments{qs}")
 
-    def get(self, payment_id: Bytes32) -> PaymentResponse:
-        """Fetch current payment state (DB status + live on-chain escrow balances)."""
-        return self._http.get(f"/payments/{payment_id}")
-
-    def create_payment(self, params: CreatePaymentRequest) -> CreatePaymentResponse:
+    def create(self, params: CreatePaymentRequest) -> CreatePaymentResponse:
         """Create a payment intent. Returns the EIP-712 signingPayload for the payer to sign."""
         return self._http.post("/payments", dict(params))
 
-    def sign(self, payment_id: Bytes32, params: PayerSignatureRequest) -> PayerSignatureResponse:
+    def get(self, rail0_id: str) -> Any:
+        """Fetch current payment state (DB status + live on-chain amounts)."""
+        return self._http.get(f"/payments/{rail0_id}")
+
+    def transactions(
+        self,
+        rail0_id: str,
+        *,
+        operation: Optional[str] = None,
+        status: Optional[str] = None,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None,
+    ) -> PaginatedResponse:
+        """List on-chain transactions for a payment."""
+        params: Dict[str, Any] = {}
+        if operation is not None:
+            params["operation"] = operation
+        if status is not None:
+            params["status"] = status
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+        qs = ("?" + urlencode(params)) if params else ""
+        return self._http.get(f"/payments/{rail0_id}/transactions{qs}")
+
+    def sign(self, payment_id: str, params: PayerSignatureRequest) -> PayerSignatureResponse:
         """Submit the payer's EIP-712 signature (v, r, s)."""
         return self._http.put(f"/payments/{payment_id}/sign", dict(params))
 
-    def authorize_prepare(self, payment_id: Bytes32) -> PrepareTransactionResponse:
-        """Prepare the unsigned authorize() transaction. Called by the payee.
-        Sign unsignedTransaction with the payee's key and pass to authorize().
-        """
+    # ── Authorize ────────────────────────────────────────────────────────
+
+    def authorize_prepare(self, payment_id: str) -> PrepareTransactionResponse:
+        """Prepare the unsigned authorize() transaction. Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/authorize/prepare")
 
-    def authorize(self, payment_id: Bytes32, params: SubmitTransactionRequest) -> AuthorizePaymentResponse:
-        """Broadcast a signed authorize transaction (HTTP 202, async). Called by the payee.
-        Poll get() until status leaves 'submitting'.
-        """
+    def authorize(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
+        """Broadcast a signed authorize transaction (HTTP 202, async). Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/authorize", dict(params))
 
-    def charge_prepare(self, payment_id: Bytes32) -> PrepareTransactionResponse:
-        """Prepare the unsigned charge() transaction (one-shot, no escrow). Called by the payee.
-        The payer signature must have been submitted first via sign().
-        """
+    # ── Charge ───────────────────────────────────────────────────────────
+
+    def charge_prepare(self, payment_id: str) -> PrepareTransactionResponse:
+        """Prepare the unsigned charge() transaction (one-shot, no escrow). Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/charge/prepare")
 
-    def charge(self, payment_id: Bytes32, params: SubmitTransactionRequest) -> ChargePaymentResponse:
+    def charge(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
         """Broadcast a signed charge transaction (HTTP 202, async). Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/charge", dict(params))
 
-    def capture_prepare(self, payment_id: Bytes32, params: CapturePaymentRequest) -> PrepareTransactionResponse:
+    # ── Capture ──────────────────────────────────────────────────────────
+
+    def capture_prepare(self, payment_id: str, params: CapturePaymentRequest) -> PrepareTransactionResponse:
         """Build the unsigned capture() transaction. Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/capture/prepare", dict(params))
 
-    def capture(self, payment_id: Bytes32, params: SubmitTransactionRequest) -> CapturePaymentResponse:
+    def capture(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
         """Broadcast a signed capture transaction (HTTP 202, async). Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/capture", dict(params))
 
-    def void_prepare(self, payment_id: Bytes32) -> PrepareTransactionResponse:
+    # ── Void ─────────────────────────────────────────────────────────────
+
+    def void_prepare(self, payment_id: str) -> PrepareTransactionResponse:
         """Build the unsigned void() transaction. Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/void/prepare")
 
-    def void(self, payment_id: Bytes32, params: SubmitTransactionRequest) -> VoidPaymentResponse:
+    def void(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
         """Broadcast a signed void transaction (HTTP 202, async). Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/void", dict(params))
 
-    def release_prepare(self, payment_id: Bytes32, params: Optional[ReleaseRequest] = None) -> PrepareTransactionResponse:
-        """Build the unsigned release() transaction.
-        Pass params with callerAddress to build the tx for the buyer (payer).
-        release() can only succeed after authorizationExpiry has passed on-chain.
-        """
+    # ── Release ──────────────────────────────────────────────────────────
+
+    def release_prepare(self, payment_id: str, params: Optional[ReleaseRequest] = None) -> PrepareTransactionResponse:
+        """Build the unsigned release() transaction."""
         return self._http.post(f"/payments/{payment_id}/release/prepare", dict(params) if params else None)
 
-    def release(self, payment_id: Bytes32, params: SubmitTransactionRequest) -> ReleasePaymentResponse:
+    def release(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
         """Broadcast a signed release transaction (HTTP 202, async)."""
         return self._http.post(f"/payments/{payment_id}/release", dict(params))
 
-    def refund_prepare(self, payment_id: Bytes32, params: dict) -> PrepareTransactionResponse:
-        """Two-phase EIP-3009 receiveWithAuthorization refund payload. Called by the payee.
+    # ── Refund (EIP-3009) ────────────────────────────────────────────────
 
-        Phase 1 — pass {"amount": "..."} only:
-            Returns the EIP-3009 signing payload. Sign off-chain to obtain v, r, s.
+    def refund_prepare(self, payment_id: str, amount: str, *, v: Optional[int] = None, r: Optional[str] = None, s: Optional[str] = None) -> PrepareTransactionResponse:
+        """Two-phase EIP-3009 refund flow.
 
-        Phase 2 — pass {"amount": "...", "v": ..., "r": "...", "s": "..."}:
-            Returns the unsigned on-chain refund transaction ready to sign and submit.
-
-        No ERC-20 approve step is required (uses EIP-3009).
+        Phase 1 — pass only amount: returns a signing payload.
+        Phase 2 — pass amount + v, r, s: returns unsigned refund transaction.
         """
+        params: Dict[str, Any] = {"amount": amount}
+        if v is not None:
+            params["v"] = v
+        if r is not None:
+            params["r"] = r
+        if s is not None:
+            params["s"] = s
         return self._http.post(f"/payments/{payment_id}/refund/prepare", params)
 
-    def refund(self, payment_id: Bytes32, params: SubmitTransactionRequest) -> RefundPaymentResponse:
+    def refund(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:
         """Broadcast a signed refund transaction (HTTP 202, async). Called by the payee."""
         return self._http.post(f"/payments/{payment_id}/refund", dict(params))
