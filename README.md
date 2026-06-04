@@ -192,7 +192,7 @@ state = client.payments.get(payment_id)
 
 #### `.create_payment(params)` → `dict`
 
-Creates a payment intent. Returns `signingPayload` for the payer to sign, plus `rail0Contract`.
+Creates a payment intent. Returns `signing_payload` for the payer to sign, plus `rail0_contract`.
 
 #### `.sign(payment_id, params)` → `dict`
 
@@ -281,7 +281,7 @@ from rail0.signing import sign_authorize, sign_charge, SignPaymentParams, TokenD
 token_domain = TokenDomain(
     name="USD Coin", version="2",
     chain_id=84532,  # Base Sepolia
-    verifying_contract=usdc["tokenAddress"],
+    verifying_contract=usdc["token_address"],
 )
 
 sig = sign_authorize(SignPaymentParams(

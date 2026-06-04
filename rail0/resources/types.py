@@ -214,6 +214,13 @@ class RefundPhase2Response(TypedDict):
     transaction_id: str
 
 
+class RefundPrepareResponse(TypedDict, total=False):
+    """Union response from refund_prepare — phase 1 returns signing_payload, phase 2 returns unsigned_transaction."""
+
+    signing_payload: SigningPayload
+    unsigned_transaction: str
+
+
 class PaymentMethod(TypedDict):
     """A single accepted payment method for a account: one (chain, token, wallet) combination."""
 

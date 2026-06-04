@@ -16,6 +16,7 @@ from .types import (
     PrepareTransactionResponse,
     RefundPhase1Response,
     RefundPhase2Response,
+    RefundPrepareResponse,
     ReleaseRequest,
     SubmitTransactionRequest,
     SubmitTransactionAcceptedResponse,
@@ -143,7 +144,7 @@ class PaymentsResource:
 
     # ── Refund (EIP-3009) ────────────────────────────────────────────────
 
-    def refund_prepare(self, payment_id: str, amount: str, *, signature: Optional[str] = None):
+    def refund_prepare(self, payment_id: str, amount: str, *, signature: Optional[str] = None) -> RefundPrepareResponse:
         """Two-phase EIP-3009 refund flow.
 
         Phase 1 — pass only amount: returns a signing payload (RefundPhase1Response).
