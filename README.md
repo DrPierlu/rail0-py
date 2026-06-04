@@ -28,18 +28,18 @@ from rail0 import Rail0Client
 client = Rail0Client(base_url="https://api.rail0.xyz")
 
 # Step 1 — discover payment methods
-methods = client.merchants.payment_methods(1)
-usdc = next(m for m in methods if m["tokenSymbol"] == "USDC")
+methods = client.accounts.payment_methods(1)
+usdc = next(m for m in methods if m["token_symbol"] == "USDC")
 
 # Step 2 — create payment intent
 resp = client.payments.create_payment({
     "payment": {
         "payer":  "0xBuyer...",
-        "payee":  usdc["walletAddress"],
-        "token":  usdc["tokenAddress"],
+        "payee":  usdc["wallet_address"],
+        "token":  usdc["token_address"],
         "amount": "50000000",   # 50 USDC (6 decimals)
     },
-    "chainId": usdc["chainId"],
+    "chain_id": usdc["chain_id"],
     "mode": "authorize",
 })
 payment_id = resp["rail0_id"]
@@ -51,35 +51,35 @@ sig = sign_authorize(SignPaymentParams(
     private_key="0x...",
     payment=resp["payment"],
     amount=int(resp["payment"]["amount"]),
-    nonce=resp["signingPayload"]["message"]["nonce"],
-    contract_address=resp["rail0Contract"],
+    nonce=resp["signing_payload"]["message"]["nonce"],
+    contract_address=resp["rail0_contract"],
     token_domain=TokenDomain(
         name="USD Coin", version="2",
-        chain_id=usdc["chainId"], verifying_contract=usdc["tokenAddress"],
+        chain_id=usdc["chain_id"], verifying_contract=usdc["token_address"],
     ),
 ))
 
 # Step 4 — submit payer signature
 client.payments.sign(payment_id, {"signature": sig.to_hex()})
 
-# Step 5 — payee fetches the unsigned authorize tx (payload step)
-tx = client.payments.authorize_payload(payment_id)
-# sign tx["unsignedTransaction"] with payee's key (EIP-1559)
+# Step 5 — payee fetches the unsigned authorize tx (prepare step)
+tx = client.payments.authorize_prepare(payment_id)
+# sign tx["unsigned_transaction"] with payee's key (EIP-1559)
 
 # Step 6 — broadcast signed authorize tx (async, HTTP 202)
-client.payments.authorize(payment_id, {"signedTransaction": signed_bytes})
+client.payments.authorize(payment_id, {"signed_transaction": signed_bytes})
 
 # Step 7 — payee captures the funds
-capture_tx = client.payments.capture_payload(payment_id, {"amount": "50000000"})
-client.payments.capture(payment_id, {"signedTransaction": sign(capture_tx)})
+capture_tx = client.payments.capture_prepare(payment_id, {"amount": "50000000"})
+client.payments.capture(payment_id, {"signed_transaction": sign(capture_tx)})
 ```
 
 ## Payment lifecycle
 
 Each operation follows the same two-step pattern:
 
-1. **Payload step** — `POST /payments/:id/operation/payload` — returns an unsigned EIP-1559 transaction. Sign it off-chain with the payee's key.
-2. **Submit step** — `POST /payments/:id/operation` with `{"signedTransaction": "0x..."}` — broadcasts the signed tx (HTTP 202, async). Poll `get()` until status leaves `"submitting"`.
+1. **Prepare step** — `POST /payments/:id/operation/prepare` — returns an unsigned EIP-1559 transaction. Sign it off-chain with the payee's key.
+2. **Submit step** — `POST /payments/:id/operation` with `{"signed_transaction": "0x..."}` — broadcasts the signed tx (HTTP 202, async). Poll `get()` until status leaves `"submitting"`.
 
 ```text
                             authorizationExpiry       refundExpiry
@@ -91,12 +91,12 @@ Each operation follows the same two-step pattern:
 
 | Operation | Caller | What it does |
 |-----------|--------|--------------|
-| `authorize_payload` + `authorize` | payee | Prepare + broadcast the authorize tx; funds move to escrow |
-| `charge_payload` + `charge` | payee | One-shot: authorize + capture with no escrow window |
-| `capture_payload` + `capture` | payee | Moves escrowed funds to the merchant |
-| `void_payload` + `void` | payee | Cancels the hold, returns funds to the payer |
-| `release_payload` + `release` | anyone | Reclaims escrow after `authorizationExpiry` |
-| `refund_payload` + `refund` | payee | EIP-3009 `receiveWithAuthorization` refund (no ERC-20 approve needed) |
+| `authorize_prepare` + `authorize` | payee | Prepare + broadcast the authorize tx; funds move to escrow |
+| `charge_prepare` + `charge` | payee | One-shot: authorize + capture with no escrow window |
+| `capture_prepare` + `capture` | payee | Moves escrowed funds to the merchant |
+| `void_prepare` + `void` | payee | Cancels the hold, returns funds to the payer |
+| `release_prepare` + `release` | anyone | Reclaims escrow after `authorizationExpiry` |
+| `refund_prepare` + `refund` | payee | EIP-3009 `receiveWithAuthorization` refund (no ERC-20 approve needed) |
 
 ## Contract addresses (v9)
 
@@ -157,16 +157,16 @@ client = Rail0Client(
 
 ---
 
-### `client.merchants`
+### `client.accounts`
 
-#### `.payment_methods(merchant_id)` → `list[dict]`
+#### `.payment_methods(account_id)` → `list[dict]`
 
-Returns the active payment methods (chain + token + wallet) for a merchant.
+Returns the active payment methods (chain + token + wallet) for an account.
 
 ```python
-methods = client.merchants.payment_methods(1)
-# [{"chainId", "chainSlug", "tokenAddress", "tokenSymbol",
-#   "tokenDecimals", "walletAddress", "isDefault", ...}]
+methods = client.accounts.payment_methods(1)
+# [{"chain_id", "chain_slug", "token_address", "token_symbol",
+#   "token_decimals", "wallet_address", "default", ...}]
 ```
 
 ---
@@ -185,9 +185,9 @@ Fetches the current payment state (DB status + live on-chain escrow balances).
 
 ```python
 state = client.payments.get(payment_id)
-# state["status"]                        → "authorized", "captured", …
-# state["onChain"]["capturableAmount"]   → escrowed amount still available
-# state["onChain"]["refundableAmount"]   → captured amount eligible for refund
+# state["status"]                          → "authorized", "captured", …
+# state["on_chain"]["capturable_amount"]   → escrowed amount still available
+# state["on_chain"]["refundable_amount"]   → captured amount eligible for refund
 ```
 
 #### `.create_payment(params)` → `dict`
@@ -198,21 +198,21 @@ Creates a payment intent. Returns `signingPayload` for the payer to sign, plus `
 
 Submits the payer's EIP-712 signature as a single unified hex string.
 
-#### `.authorize_payload(payment_id)` → `dict`
+#### `.authorize_prepare(payment_id)` → `dict`
 
-Prepares the unsigned `authorize()` transaction. Called by the payee. Sign `unsignedTransaction` and pass to `authorize()`.
+Prepares the unsigned `authorize()` transaction. Called by the payee. Sign `unsigned_transaction` and pass to `authorize()`.
 
 #### `.authorize(payment_id, params)` → `dict`
 
 Broadcasts the signed authorize transaction (HTTP 202, async). Poll `.get()` until status leaves `'submitting'`.
 
 ```python
-tx = client.payments.authorize_payload(payment_id)
-# sign tx["unsignedTransaction"] with payee's key
-client.payments.authorize(payment_id, {"signedTransaction": signed_bytes})
+tx = client.payments.authorize_prepare(payment_id)
+# sign tx["unsigned_transaction"] with payee's key
+client.payments.authorize(payment_id, {"signed_transaction": signed_bytes})
 ```
 
-#### `.charge_payload(payment_id)` → `dict`
+#### `.charge_prepare(payment_id)` → `dict`
 
 Prepares the unsigned charge transaction (one-shot authorize + capture, no escrow window).
 
@@ -220,16 +220,16 @@ Prepares the unsigned charge transaction (one-shot authorize + capture, no escro
 
 Broadcasts the signed charge transaction (HTTP 202, async).
 
-#### `.capture_payload(payment_id, params)` → `dict`
+#### `.capture_prepare(payment_id, params)` → `dict`
 
 Build the capture transaction. Partial captures are supported.
 
 ```python
-tx = client.payments.capture_payload(payment_id, {"amount": "50000000"})
-client.payments.capture(payment_id, {"signedTransaction": signed})
+tx = client.payments.capture_prepare(payment_id, {"amount": "50000000"})
+client.payments.capture(payment_id, {"signed_transaction": signed})
 ```
 
-#### `.void_payload(payment_id)` → `dict`
+#### `.void_prepare(payment_id)` → `dict`
 
 Build the unsigned void transaction — releases all escrowed funds to the payer.
 
@@ -237,32 +237,32 @@ Build the unsigned void transaction — releases all escrowed funds to the payer
 
 Broadcasts the signed void transaction (HTTP 202, async).
 
-#### `.release_payload(payment_id, params?)` → `dict`
+#### `.release_prepare(payment_id, params?)` → `dict`
 
-Build the unsigned release transaction for reclaiming escrow after `authorizationExpiry`. Pass `{"callerAddress": addr}` for buyer-initiated release.
+Build the unsigned release transaction for reclaiming escrow after `authorizationExpiry`. Pass `{"caller_address": addr}` for buyer-initiated release.
 
 ```python
-tx = client.payments.release_payload(payment_id, {"callerAddress": buyer_addr})
-client.payments.release(payment_id, {"signedTransaction": buyer_signed})
+tx = client.payments.release_prepare(payment_id, {"caller_address": buyer_addr})
+client.payments.release(payment_id, {"signed_transaction": buyer_signed})
 ```
 
-#### `.refund_payload(payment_id, params)` → `dict`
+#### `.refund_prepare(payment_id, amount, *, signature?)` → `dict`
 
-Two-phase EIP-3009 `receiveWithAuthorization` refund payload. No ERC-20 approve step is required.
+Two-phase EIP-3009 `receiveWithAuthorization` refund prepare. No ERC-20 approve step is required.
 
-**Phase 1** — pass `{"amount": "..."}` only: returns the EIP-3009 signing payload. Sign off-chain to obtain `v`, `r`, `s`.
+**Phase 1** — pass `amount` only: returns the EIP-3009 signing payload (`signing_payload`).
 
-**Phase 2** — pass `{"amount": "...", "v": ..., "r": "...", "s": "..."}`: returns the unsigned on-chain refund transaction.
+**Phase 2** — pass `amount` + `signature` (0x-prefixed hex string): returns the unsigned on-chain refund transaction.
 
 ```python
 # Phase 1 — get EIP-3009 signing payload
-sig_payload = client.payments.refund_payload(payment_id, {"amount": "50000000"})
-# sign sig_payload off-chain → v, r, s
+phase1 = client.payments.refund_prepare(payment_id, "50000000")
+# sign phase1["signing_payload"] off-chain → signature hex
 
 # Phase 2 — get unsigned on-chain tx
-tx = client.payments.refund_payload(payment_id, {"amount": "50000000", "v": v, "r": r, "s": s})
-# sign tx["unsignedTransaction"] with payee's key
-client.payments.refund(payment_id, {"signedTransaction": signed_bytes})
+phase2 = client.payments.refund_prepare(payment_id, "50000000", signature="0x...")
+# sign phase2["unsigned_transaction"] with payee's key
+client.payments.refund(payment_id, {"signed_transaction": signed_bytes})
 ```
 
 #### `.refund(payment_id, params)` → `dict`
@@ -288,8 +288,8 @@ sig = sign_authorize(SignPaymentParams(
     private_key="0x...",   # payer's private key
     payment=resp["payment"],
     amount=int(resp["payment"]["amount"]),
-    nonce=resp["signingPayload"]["message"]["nonce"],
-    contract_address=resp["rail0Contract"],
+    nonce=resp["signing_payload"]["message"]["nonce"],
+    contract_address=resp["rail0_contract"],
     token_domain=token_domain,
 ))
 
@@ -378,7 +378,7 @@ rail0/
 
   resources/
     types.py        TypedDict shapes
-    merchants.py    MerchantsResource
+    accounts.py     AccountsResource
     payments.py     PaymentsResource
 
 tests/

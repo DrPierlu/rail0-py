@@ -14,6 +14,8 @@ from .types import (
     PayerSignatureRequest,
     PayerSignatureResponse,
     PrepareTransactionResponse,
+    RefundPhase1Response,
+    RefundPhase2Response,
     ReleaseRequest,
     SubmitTransactionRequest,
     SubmitTransactionAcceptedResponse,
@@ -141,19 +143,15 @@ class PaymentsResource:
 
     # ── Refund (EIP-3009) ────────────────────────────────────────────────
 
-    def refund_prepare(self, payment_id: str, amount: str, *, v: Optional[int] = None, r: Optional[str] = None, s: Optional[str] = None) -> PrepareTransactionResponse:
+    def refund_prepare(self, payment_id: str, amount: str, *, signature: Optional[str] = None):
         """Two-phase EIP-3009 refund flow.
 
-        Phase 1 — pass only amount: returns a signing payload.
-        Phase 2 — pass amount + v, r, s: returns unsigned refund transaction.
+        Phase 1 — pass only amount: returns a signing payload (RefundPhase1Response).
+        Phase 2 — pass amount + signature (0x-prefixed hex): returns unsigned refund transaction (RefundPhase2Response).
         """
         params: Dict[str, Any] = {"amount": amount}
-        if v is not None:
-            params["v"] = v
-        if r is not None:
-            params["r"] = r
-        if s is not None:
-            params["s"] = s
+        if signature is not None:
+            params["signature"] = signature
         return self._http.post(f"/payments/{payment_id}/refund/prepare", params)
 
     def refund(self, payment_id: str, params: SubmitTransactionRequest) -> SubmitTransactionAcceptedResponse:

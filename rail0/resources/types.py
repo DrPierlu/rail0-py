@@ -201,6 +201,19 @@ class PrepareTransactionResponse(TypedDict):
     gasLimit: Uint256String
 
 
+class RefundPhase1Response(TypedDict):
+    """Response from refund_prepare phase 1 — contains the EIP-3009 signing payload."""
+
+    signing_payload: SigningPayload
+
+
+class RefundPhase2Response(TypedDict):
+    """Response from refund_prepare phase 2 — contains the unsigned on-chain refund transaction."""
+
+    unsigned_transaction: str
+    transaction_id: str
+
+
 class PaymentMethod(TypedDict):
     """A single accepted payment method for a account: one (chain, token, wallet) combination."""
 
