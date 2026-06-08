@@ -40,12 +40,10 @@ class PaymentConfig(TypedDict):
     amount: Uint256String
     authorization_expiry: int
     refund_expiry: int
-    fee_bps: int
-    fee_receiver: Address
 
 
 class PaymentInput(TypedDict):
-    """Buyer-supplied payment parameters. Policy fields (authorization_expiry, refund_expiry, fee_bps, fee_receiver) are fixed API configuration applied server-side."""
+    """Buyer-supplied payment parameters. Policy fields (authorization_expiry, refund_expiry) are fixed API configuration applied server-side."""
 
     payer: Address
     payee: Address
@@ -347,7 +345,6 @@ class _AccountRequired(TypedDict):
 
 
 class Account(_AccountRequired, total=False):
-    fee_bps: int
     updated_at: str
 
 
