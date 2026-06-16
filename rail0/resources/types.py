@@ -32,7 +32,11 @@ Uint256String = str
 
 
 class PaymentConfig(TypedDict):
-    """Immutable payment configuration that maps 1-to-1 to the RAIL0 `Payment` Solidity struct."""
+    """Immutable payment configuration returned by the API (e.g. in CreatePaymentResponse).
+
+    Contains the full on-chain payment terms including server-applied policy fields
+    (authorization_expiry, refund_expiry).
+    """
 
     payer: Address
     payee: Address
@@ -40,15 +44,6 @@ class PaymentConfig(TypedDict):
     amount: Uint256String
     authorization_expiry: int
     refund_expiry: int
-
-
-class PaymentInput(TypedDict):
-    """Buyer-supplied payment parameters. Policy fields (authorization_expiry, refund_expiry) are fixed API configuration applied server-side."""
-
-    payer: Address
-    payee: Address
-    token: Address
-    amount: Uint256String
 
 
 class EIP712Domain(TypedDict):
@@ -87,10 +82,16 @@ class SigningPayload(TypedDict):
 
 
 class _CreatePaymentRequestRequired(TypedDict):
-    """Parameters needed to create a payment intent."""
+    """Parameters needed to create a payment intent.
 
-    payment: PaymentInput
+    All fields are flat — there is no nested ``payment`` object.
+    """
+
     chain_id: int
+    amount: Uint256String
+    token: Address
+    payer: Address
+    payee: Address
 
 
 class CreatePaymentRequest(_CreatePaymentRequestRequired, total=False):

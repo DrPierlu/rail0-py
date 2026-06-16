@@ -33,14 +33,12 @@ usdc = next(m for m in methods if m["token_symbol"] == "USDC")
 
 # Step 2 — create payment intent
 resp = client.payments.create_payment({
-    "payment": {
-        "payer":  "0xBuyer...",
-        "payee":  usdc["wallet_address"],
-        "token":  usdc["token_address"],
-        "amount": "50000000",   # 50 USDC (6 decimals)
-    },
     "chain_id": usdc["chain_id"],
-    "mode": "authorize",
+    "mode":     "authorize",
+    "amount":   "50000000",   # 50 USDC (6 decimals)
+    "payer":    "0xBuyer...",
+    "payee":    usdc["wallet_address"],
+    "token":    usdc["token_address"],
 })
 payment_id = resp["rail0_id"]
 
